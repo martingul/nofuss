@@ -1,0 +1,8 @@
+source 'https://rubygems.org'
+gem 'rack'
+gem 'thin'
+gem 'pg'
+gem 'bcrypt'
+gem 'openssl'
+gem 'hashids'
+gem 'mimemagic'
