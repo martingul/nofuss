@@ -1,5 +1,5 @@
 module Users
-  def self.signup(username, password)
+  def self.signup(username, password, user)
     password_hash = Auth.hash(password)
 
     # store a new user instance and get the uid back
@@ -17,10 +17,14 @@ module Users
     sessid = Auth.create_session(uid)
 
     # redirect the user to index with session cookie
-    view = View.new('index', username: username)
-    body = view.render
-    return Rack::Response.new(body, 302, {
-      'Content-Type' => 'text/html',
+    # view = View.new('index', username: username)
+    # body = view.render
+    # return Rack::Response.new(body, 302, {
+    #   'Content-Type' => 'text/html',
+    #   'Set-Cookie' => "sessid=#{sessid}; Path=/; HttpOnly",
+    #   'Location' => '/'
+    # })
+    return View.finalize('index', 302, {username: username, user: user}, {
       'Set-Cookie' => "sessid=#{sessid}; Path=/; HttpOnly",
       'Location' => '/'
     })
@@ -29,7 +33,7 @@ module Users
 
     if sqlstate == '23505' # unique username constraint error
       return View.finalize('login', 400, {
-        username: username, username_taken: true
+        username: username, username_taken: true, user: user
       })
     end
   end

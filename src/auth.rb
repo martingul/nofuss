@@ -13,7 +13,8 @@ module Auth
 
     # TODO validate username and password
 
-    return Users.signup(username, password) if signup
+    return Users.signup(username, password, user) if signup # user wants to signup
+
     # retrieve password from database from comparison
     conn = PG.connect(dbname: 'storage')
     conn.prepare('user_select', 'SELECT id, password FROM users
@@ -23,7 +24,7 @@ module Auth
     if result.column_values(0).empty?
       # username not found
       return View.finalize('login', 200, {
-        username_trial: username, invalid_username: true
+        username_trial: username, invalid_username: true, user: user
       })
     end
 
@@ -34,7 +35,7 @@ module Auth
     if password_hash != password
       # passwords do not match
       return View.finalize('login', 200, {
-        username_trial: username, invalid_password: true
+        username_trial: username, invalid_password: true, user: user
       })
     end
 
