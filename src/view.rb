@@ -4,7 +4,7 @@ class View
   def initialize(page, env = {})
     @env = env # TODO validate each field
     @page = page
-    @template = File.read(File.expand_path("assets/views/#{page}.html.erb"))
+    @template = File.read(File.expand_path("public/view/#{page}.html.erb"))
   end
 
   def render
@@ -13,10 +13,10 @@ class View
 
   def include(view)
     ERB.new(
-      File.read(File.expand_path("assets/views/#{view}.html.erb"))
+      File.read(File.expand_path("public/view/include/#{view}.html.erb"))
     ).result(binding)
   end
-  
+
   def self.finalize(view_name, status = 200, env = {}, headers = {})
     view = View.new(view_name, env)
     body = view.render

@@ -11,6 +11,7 @@ module Threads
 
     text = req.params['text']
     file = req.params['file']
+    thread = req.params['thread']
     # TODO validate each input
 
     if !req.post?
@@ -42,8 +43,7 @@ module Threads
     conn.prepare('thread_insert',
       'INSERT INTO threads(author, text, ext)
       VALUES($1, $2, $3) RETURNING id')
-    result = conn.exec_prepared('thread_insert',
-      [user[:id], text, ext])
+    result = conn.exec_prepared('thread_insert', [user[:id], text, ext])
     # TODO check result
     id = result[0]['id']
 
@@ -51,62 +51,43 @@ module Threads
     hash = hashids.encode(id)
 
     if !file.nil?
-      f = File.open("assets/f/#{hash}.#{ext}", 'w') { |i| i.write(tmp.read) }
+      f = File.open("public/file/#{hash}.#{ext}", 'w') { |i| i.write(tmp.read) }
       # TODO think about closing the temp file
     end
 
-    # redirect to the thread
-    return get_thread(req, hash, user, true)
+    return thread(hash, user, true) # redirect to the thread
   end
 
-  def self.get_threads()
+  def self.get_threads
     hashids = Hashids.new('thread', 10, 'abcdefghijklmnopqrstuvwxyz')
     conn = PG.connect(dbname: 'storage')
     conn.prepare('thread_select',
-      'SELECT users.username, threads.id, threads.text,
-      threads.ext, threads.date_created FROM threads
+      'SELECT threads.id, users.username, threads.text, threads.ext,
+      cardinality(threads.children) AS children, threads.date_created
+      FROM threads
       JOIN users ON users.id = threads.author
+      WHERE threads.parent IS NULL
       ORDER BY threads.date_created DESC LIMIT 20')
-    result = conn.exec_prepared('thread_select', [])
-    #  TODO check result
+    result = conn.exec_prepared('thread_select', []) #  TODO check result
 
     threads = []
     result.each_row do |row|
-      thread = {}
-      thread[:author] = row[0]
-      thread[:hash] = hashids.encode(row[1])
-      thread[:text] = row[2]
-      thread[:ext] = row[3]
-      thread[:date_created] = to_sentence(row[4])
-      threads.push(thread)
+      threads.push({
+        hash: hashids.encode(row[0]),
+        author: row[1],
+        text: row[2],
+        ext: row[3],
+        children: row[4],
+        date_created: date_as_sentence(row[5])
+      })
     end
 
     return threads
   end
 
-  def self.get_thread(req, hash, user, redirect = false)
-    hashids = Hashids.new('thread', 10, 'abcdefghijklmnopqrstuvwxyz')
-    id = hashids.decode(hash)[0]
-
-    conn = PG.connect(dbname: 'storage')
-    conn.prepare('thread_select',
-      'SELECT users.username, threads.text, threads.ext, threads.date_created
-      FROM threads JOIN users ON users.id = threads.author
-      WHERE threads.id = $1 LIMIT 1')
-    result = conn.exec_prepared('thread_select', [id])
-    # TODO check result
-    # thread not found in database
-    return Router.not_found(req) if result.column_values(0).empty?
-
-    author = result.column_values(0)[0]
-    text = result.column_values(1)[0]
-    ext = result.column_values(2)[0]
-    date_created = to_sentence(result.column_values(3)[0])
-
-    thread = {
-      author: author, text: text, ext: ext, hash: hash,
-      date_created: date_created,
-    }
+  def self.thread(hash, user, redirect = false)
+    thread = get_thread(hash)
+    return Router.not_found if thread.nil?
 
     status = 200
     headers = {}
@@ -121,7 +102,43 @@ module Threads
     }, headers)
   end
 
-  def self.to_sentence(date)
+  # retrieve a thread (and its children) from hash of thread id
+  def self.get_thread(hash)
+    hashids = Hashids.new('thread', 10, 'abcdefghijklmnopqrstuvwxyz')
+    id = hashids.decode(hash)[0]
+
+    conn = PG.connect(dbname: 'storage')
+    conn.prepare('thread_select',
+      'SELECT threads.id, users.username, threads.text, threads.ext,
+      threads.children::int[], threads.date_created
+      FROM threads
+      JOIN users ON users.id = threads.author
+      WHERE threads.id = $1 OR (
+	       SELECT threads.children FROM threads
+         WHERE threads.id = $1
+      ) @> ARRAY[threads.id]
+      ORDER BY threads.date_created DESC LIMIT 20')
+    result = conn.exec_prepared('thread_select', [id]) # TODO check result
+
+    return nil if result.column_values(0).empty? # thread not found
+
+    threads = []
+    result.each do |row|
+      threads.push({
+        hash: hashids.encode(row['id']),
+        author: row['author'],
+        text: row['text'],
+        ext: row['ext'],
+        children: row['children'].tr('{}', '').split(','),
+        date_created: date_as_sentence(row['date_created'])
+      })
+    end
+
+    return threads
+  end
+
+  # convert a timestamp to a 'X time ago' type sentence
+  def self.date_as_sentence(date)
     d = Time.parse(date)
     t_now = Time.now
     dt = t_now - d

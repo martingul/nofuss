@@ -1,4 +1,4 @@
 require './src/server.rb'
 
-use Rack::Static, :urls => ['/css', '/f'], :root => "assets"
+use Rack::Static, :urls => ['/file'], :root => "public"
 run Server.new

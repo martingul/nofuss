@@ -17,10 +17,12 @@ module Auth
 
     # retrieve password from database from comparison
     conn = PG.connect(dbname: 'storage')
-    conn.prepare('user_select', 'SELECT id, password FROM users
+    conn.prepare('user_select',
+      'SELECT id, password
+      FROM users
       WHERE username = $1 LIMIT 1')
-    result = conn.exec_prepared('user_select', [username])
-    # TODO check result
+    result = conn.exec_prepared('user_select', [username]) # TODO check result
+
     if result.column_values(0).empty?
       # username not found
       return View.finalize('login', 200, {
@@ -75,7 +77,8 @@ module Auth
     sessid_hash = bin_to_hex(hash)
 
     conn = PG.connect(dbname: 'storage')
-    conn.prepare('session_insert', 'INSERT INTO sessions(sessid, uid)
+    conn.prepare('session_insert',
+      'INSERT INTO sessions(sessid, uid)
       VALUES($1, $2)')
     result = conn.exec_prepared('session_insert', [sessid_hash, uid])
     # TODO check result
@@ -88,11 +91,13 @@ module Auth
     sessid_hash = bin_to_hex(hash)
 
     conn = PG.connect(dbname: 'storage')
-    conn.prepare('user_select', 'SELECT users.id, users.username FROM users
+    conn.prepare('user_select',
+      'SELECT users.id, users.username
+      FROM users
       JOIN sessions ON sessions.uid = users.id
       WHERE sessions.sessid = $1 LIMIT 1')
     result = conn.exec_prepared('user_select', [sessid_hash])
-
+    # TODO check result
     # sessid is invalid, no username has been found
     return {
       id: result.values.empty? ? nil : result[0]['id'],

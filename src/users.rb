@@ -16,14 +16,6 @@ module Users
 
     sessid = Auth.create_session(uid)
 
-    # redirect the user to index with session cookie
-    # view = View.new('index', username: username)
-    # body = view.render
-    # return Rack::Response.new(body, 302, {
-    #   'Content-Type' => 'text/html',
-    #   'Set-Cookie' => "sessid=#{sessid}; Path=/; HttpOnly",
-    #   'Location' => '/'
-    # })
     return View.finalize('index', 302, {username: username, user: user}, {
       'Set-Cookie' => "sessid=#{sessid}; Path=/; HttpOnly",
       'Location' => '/'
@@ -39,16 +31,16 @@ module Users
   end
 
   def self.get_user(req, username, user)
-    # XXX req
+    # XXX req not needed
     # TODO validate username
-    # check if username exists
     conn = PG.connect(dbname: 'storage')
     conn.prepare('user_select',
-      'SELECT username, date_created FROM users WHERE username = $1 LIMIT 1')
-    result = conn.exec_prepared('user_select', [username])
-    # TODO check result
+      'SELECT users.username, users.date_created
+      FROM users
+      WHERE users.username = $1 LIMIT 1')
+    result = conn.exec_prepared('user_select', [username]) # TODO check result
     # username not found in database
-    return Routes.not_found(req) if result.column_values(0).empty?
+    return Routes.not_found if result.column_values(0).empty?
 
     date_created = result.column_values(1)[0]
     t_created = Time.parse(date_created).strftime("%B %e %Y")
