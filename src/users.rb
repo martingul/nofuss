@@ -3,20 +3,21 @@ module Users
     password_hash = Auth.hash(password)
 
     # store a new user instance and get the uid back
-    conn = PG.connect(dbname: 'storage')
-    conn.prepare('user_insert',
-      'INSERT INTO users(username, password) VALUES($1, $2)
+    db = PG.connect(dbname: 'storage')
+    db.prepare('users',
+      'INSERT INTO users(username, password)
+      VALUES($1, $2)
       RETURNING id AS uid')
-    result = conn.exec_prepared('user_insert', [username, password_hash])
+    result = db.exec_prepared('users', [username, password_hash])
     # TODO check result
     uid = result[0]['uid']
 
-    conn.close if conn
-    result.clear if result
+    db.close
+    result.clear
 
     sessid = Auth.create_session(uid)
 
-    return View.finalize('index', 302, {username: username, user: user}, {
+    return View.finalize('index', 302, { username: username, user: user }, {
       'Set-Cookie' => "sessid=#{sessid}; Path=/; HttpOnly",
       'Location' => '/'
     })
@@ -33,14 +34,14 @@ module Users
   def self.get_user(req, username, user)
     # XXX req not needed
     # TODO validate username
-    conn = PG.connect(dbname: 'storage')
-    conn.prepare('user_select',
+    db = PG.connect(dbname: 'storage')
+    db.prepare('user_select',
       'SELECT users.username, users.date_created
       FROM users
       WHERE users.username = $1 LIMIT 1')
-    result = conn.exec_prepared('user_select', [username]) # TODO check result
+    result = db.exec_prepared('user_select', [username]) # TODO check result
     # username not found in database
-    return Routes.not_found if result.column_values(0).empty?
+    return Routes.not_found if result.values.empty?
 
     date_created = result.column_values(1)[0]
     t_created = Time.parse(date_created).strftime("%B %e %Y")

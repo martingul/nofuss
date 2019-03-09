@@ -13,17 +13,18 @@ module Auth
 
     # TODO validate username and password
 
-    return Users.signup(username, password, user) if signup # user wants to signup
+    return Users.signup(username, password, user) if signup
 
     # retrieve password from database from comparison
-    conn = PG.connect(dbname: 'storage')
-    conn.prepare('user_select',
+    db = PG.connect(dbname: 'storage')
+    db.prepare('users',
       'SELECT id, password
       FROM users
       WHERE username = $1 LIMIT 1')
-    result = conn.exec_prepared('user_select', [username]) # TODO check result
+    result = db.exec_prepared('users', [username]) # TODO check result
+    db.close
 
-    if result.column_values(0).empty?
+    if result.values.empty?
       # username not found
       return View.finalize('login', 200, {
         username_trial: username, invalid_username: true, user: user
@@ -32,6 +33,7 @@ module Auth
 
     uid = result.column_values(0)[0]
     password_db = result.column_values(1)[0]
+    result.clear
     password_hash = BCrypt::Password.new(password_db)
 
     if password_hash != password
@@ -58,10 +60,12 @@ module Auth
     hash = OpenSSL::Digest::SHA256.digest(sessid)
     sessid_hash = bin_to_hex(hash)
 
-    conn = PG.connect(dbname: 'storage')
-    conn.prepare('session_delete', 'DELETE FROM sessions WHERE sessid = $1')
-    result = conn.exec_prepared('session_delete', [sessid_hash])
+    db = PG.connect(dbname: 'storage')
+    db.prepare('sessions', 'DELETE FROM sessions WHERE sessid = $1')
+    result = db.exec_prepared('sessions', [sessid_hash])
     # TODO check result
+    db.close
+    result.clear
 
     # redirect to index
     return Router.index(req, 302, {
@@ -76,33 +80,42 @@ module Auth
     hash = OpenSSL::Digest::SHA256.digest(sessid_hex)
     sessid_hash = bin_to_hex(hash)
 
-    conn = PG.connect(dbname: 'storage')
-    conn.prepare('session_insert',
+    db = PG.connect(dbname: 'storage')
+    db.prepare('sessions',
       'INSERT INTO sessions(sessid, uid)
       VALUES($1, $2)')
-    result = conn.exec_prepared('session_insert', [sessid_hash, uid])
+    result = db.exec_prepared('sessions', [sessid_hash, uid])
     # TODO check result
+    db.close
+    result.clear
+
     return sessid_hex
   end
 
   def self.get_user_from_sessid(sessid)
-    return {id: nil, username: nil} if sessid.nil?
+    return { id: nil, username: nil } if sessid.nil?
     hash = OpenSSL::Digest::SHA256.digest(sessid)
     sessid_hash = bin_to_hex(hash)
 
-    conn = PG.connect(dbname: 'storage')
-    conn.prepare('user_select',
+    db = PG.connect(dbname: 'storage')
+    db.prepare('users_sessions',
       'SELECT users.id, users.username
       FROM users
       JOIN sessions ON sessions.uid = users.id
       WHERE sessions.sessid = $1 LIMIT 1')
-    result = conn.exec_prepared('user_select', [sessid_hash])
+    result = db.exec_prepared('users_sessions', [sessid_hash])
     # TODO check result
-    # sessid is invalid, no username has been found
-    return {
-      id: result.values.empty? ? nil : result[0]['id'],
-      username: result.values.empty? ? nil : result[0]['username']
-    }
+    db.close
+
+    id = nil
+    username = nil
+    if !result.values.empty?
+      id = result.column_values(0)[0]
+      username = result.column_values(1)[0]
+    end
+
+    result.clear
+    return { id: id, username: username }
   end
 
   def self.hash(password)
