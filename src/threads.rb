@@ -80,9 +80,9 @@ module Threads
     return hash
   end
 
-  def self.submit(req, user)
+  def self.submit(req, session)
     if !req.post?
-      return View.finalize('submit', 200, { user: user, incorrect: false })
+      return View.finalize('submit', 200, { incorrect: false, session: session })
     end
 
     text = req.params['text']
@@ -91,17 +91,17 @@ module Threads
     # TODO validate each input
 
     if text.empty? && file.nil?
-      return View.finalize('submit', 400, { user: user, incorrect: true })
+      return View.finalize('submit', 400, { incorrect: true, session: session })
     end
 
     hash = create_thread({
-      author: user[:id],
+      author: session[:id],
       text: text,
       file: file,
       parent: parent
     }, !parent.nil?)
 
-    return thread(hash, user, true) # redirect to the thread
+    return thread(hash, session, true) # redirect to the thread
   end
 
   def self.get_threads
@@ -132,7 +132,7 @@ module Threads
   end
 
   # retrieve a thread from its hash
-  def self.thread(hash, user, redirect = false)
+  def self.thread(hash, session, redirect = false)
     hashids = Hashids.new('thread', 10, 'abcdefghijklmnopqrstuvwxyz')
     id = hashids.decode(hash)[0]
 
@@ -148,7 +148,7 @@ module Threads
     end
 
     return View.finalize('thread', status, {
-      thread: thread, user: user
+      thread: thread, session: session
     }, headers)
   end
 

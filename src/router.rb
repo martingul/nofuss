@@ -3,43 +3,45 @@ require './src/users'
 require './src/threads'
 
 module Router
-  def self.route(req, env = {})
+  def self.route(req)
     # TODO check method
     sessid = req.cookies['sessid'] # TODO validate sessid cookie
-    user = Auth.get_user_from_sessid(sessid)
+    session = Auth.get_session_from_sessid(sessid)
 
     query = Rack::Utils.parse_query(req.path, '/').keys
     case query[0]
     when nil
-      return index(req, 200, {}, user)
+      return index(session)
     when 'login'
-      if user[:id].nil?
-        return Auth.login(req, user)
-      else
-        return index(req, 302, {'Location' => '/'}, user)
-      end
+      return session.nil? ? Auth.login(req) : index(session, true)
     when 'logout'
       return Auth.logout(req)
     when 'user'
-      return query[1].nil? ? not_found : Users.get_user(req, query[1], user)
+      # TODO validate username (query[1])
+      return query[1].nil? ? not_found : Users.get_user(query[1], session)
     when 'submit'
-      if user[:id].nil?
-        return index(req, 302, {'Location' => '/'}, user)
-      else
-        return Threads.submit(req, user)
-      end
+      return session.nil? ? index(session, true) : Threads.submit(req, session)
     when 'thread'
-      return query[1].nil? ? not_found : Threads.thread(query[1], user)
+      return query[1].nil? ? not_found : Threads.thread(query[1], session)
     else
       return not_found
     end
   end
 
-  def self.index(req, status = 200, headers = {}, user = {})
+  def self.index(session = nil, redirect = false, _headers = {})
     threads = Threads.get_threads # retrieve index page threads
 
+    headers = {}
+    status = 200
+    if redirect
+      headers['Location'] = '/'
+      status = 302
+    end
+
+    headers.merge!(_headers)
+
     return View.finalize('index', status, {
-      user: user.nil? ? {} : user,
+      session: session,
       threads: threads
     }, headers)
   end

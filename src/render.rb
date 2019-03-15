@@ -148,4 +148,28 @@ module Render
       return ERB.new(template).result(binding)
     end
   end
+
+  class Header
+    def self.render(session)
+      template = <<~HTML
+        <div class="header">
+          <a href="/" class="title action">Frontpage</a>
+          <% if !session.nil?%>
+            <a href="/submit" class="action">submit</a>
+          <% end %>
+          <span class="right">
+            <% if session.nil? %>
+              <a href="/login">login</a>
+            <% else %>
+              <a href="/user/<%= session[:username] %>" class="action">
+                <%= session[:username] %></a>
+              <a href="/logout">logout</a>
+            <% end %>
+          </span>
+        </div>
+      HTML
+
+      return ERB.new(template).result(binding)
+    end
+  end
 end

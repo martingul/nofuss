@@ -18,12 +18,12 @@ class View
     ).result(binding)
   end
 
-  def self.finalize(view_name, status = 200, env = {}, headers = {})
+  def self.finalize(view_name, status = 200, env = {}, _headers = {})
     view = View.new(view_name, env)
     body = view.render
-    _headers = {'Content-Type' => 'text/html'}
-    _headers.merge!(headers)
+    headers = {'Content-Type' => 'text/html'}
+    headers.merge!(_headers)
 
-    return Rack::Response.new(body, status, _headers)
+    return Rack::Response.new(body, status, headers)
   end
 end

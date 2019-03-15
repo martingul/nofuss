@@ -2,20 +2,18 @@ require 'bcrypt'
 require 'openssl'
 
 module Auth
-  def self.login(req, user = {})
+  def self.login(req)
     username = req.params['username']
     password = req.params['password']
     signup = req.params['signup']
+    # TODO validate username and password
     # TODO divide this part for GET and POST methods
     if username.nil? && password.nil? && signup.nil?
-      return View.finalize('login', 200, user: user)
+      return View.finalize('login')
     end
 
-    # TODO validate username and password
-
-    return Users.signup(username, password, user) if signup
-
-    # retrieve password from database from comparison
+    return Users.signup(username, password) if signup
+    # retrieve password from database for comparison
     db = PG.connect(dbname: 'storage')
     db.prepare('users',
       'SELECT id, password
@@ -24,10 +22,9 @@ module Auth
     result = db.exec_prepared('users', [username]) # TODO check result
     db.close
 
-    if result.values.empty?
-      # username not found
+    if result.values.empty? # username not found
       return View.finalize('login', 200, {
-        username_trial: username, invalid_username: true, user: user
+        username_trial: username, invalid_username: true
       })
     end
 
@@ -36,10 +33,9 @@ module Auth
     result.clear
     password_hash = BCrypt::Password.new(password_db)
 
-    if password_hash != password
-      # passwords do not match
+    if password_hash != password # passwords do not match
       return View.finalize('login', 200, {
-        username_trial: username, invalid_password: true, user: user
+        username_trial: username, invalid_password: true
       })
     end
 
@@ -47,9 +43,8 @@ module Auth
     sessid = create_session(uid)
 
     # redirect to index
-    return Router.index(req, 302, {
-      'Set-Cookie' => "sessid=#{sessid}; Path=/; HttpOnly",
-      'Location' => '/'
+    return Router.index(nil, true, {
+      'Set-Cookie' => "sessid=#{sessid}; Path=/; HttpOnly"
     })
   end
 
@@ -68,9 +63,7 @@ module Auth
     result.clear
 
     # redirect to index
-    return Router.index(req, 302, {
-      'Location' => '/'
-    })
+    return Router.index(nil, true)
   end
 
   def self.create_session(uid)
@@ -92,8 +85,8 @@ module Auth
     return sessid_hex
   end
 
-  def self.get_user_from_sessid(sessid)
-    return { id: nil, username: nil } if sessid.nil? # TODO rewrite this to nil
+  def self.get_session_from_sessid(sessid)
+    return if sessid.nil?
     hash = OpenSSL::Digest::SHA256.digest(sessid)
     sessid_hash = bin_to_hex(hash)
 
@@ -107,15 +100,17 @@ module Auth
     # TODO check result
     db.close
 
-    id = nil
-    username = nil
     if !result.values.empty?
-      id = result.column_values(0)[0]
-      username = result.column_values(1)[0]
+      session = {
+        id: result.column_values(0)[0],
+        username: result.column_values(1)[0]
+      }
+    else
+      session = nil
     end
 
     result.clear
-    return { id: id, username: username }
+    return session
   end
 
   def self.hash(password)
