@@ -93,7 +93,7 @@ module Auth
   end
 
   def self.get_user_from_sessid(sessid)
-    return { id: nil, username: nil } if sessid.nil?
+    return { id: nil, username: nil } if sessid.nil? # TODO rewrite this to nil
     hash = OpenSSL::Digest::SHA256.digest(sessid)
     sessid_hash = bin_to_hex(hash)
 

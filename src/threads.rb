@@ -1,11 +1,13 @@
 require 'hashids'
 require 'base64'
 require 'mimemagic'
+require 'redcarpet'
 
 module Threads
   def self.create_thread(thread, reply = false)
     allowed_mimes = {
       'image/jpeg' => 'jpg',
+      'image/png' => 'png',
       'image/gif' => 'gif',
     }
 
@@ -78,6 +80,7 @@ module Threads
     return hash
   end
 
+  # submit view method
   def self.submit(req, user)
     if !req.post?
       return View.finalize('submit', 200, { user: user, incorrect: false })
@@ -106,7 +109,7 @@ module Threads
     db = PG.connect(dbname: 'storage')
     db.prepare('threads_users',
       'SELECT threads.id, users.username AS author, threads.text, threads.ext,
-      cardinality(threads.children) AS children, threads.date_created
+      threads.children::int[], threads.date_created
       FROM threads
       JOIN users ON users.id = threads.author
       WHERE threads.parent IS NULL
@@ -118,11 +121,11 @@ module Threads
     threads = []
     result.each_row { |row|
       threads.push({
-        hash: hashids.encode(row[0]),
+        hash: hashids.encode(row[0].to_i),
         author: row[1],
         text: row[2],
         ext: row[3],
-        children: row[4],
+        children: row[4].tr('{}', '').split(',').map{ |c| c.to_i },
         date_created: date_as_sentence(row[5])
       })
     }
@@ -131,8 +134,9 @@ module Threads
     return threads
   end
 
+  # thread view method
   def self.thread(hash, user, redirect = false)
-    thread = get_thread(hash)
+    thread = get_thread_depth(hash)
     return Router.not_found if thread.nil?
 
     status = 200
@@ -148,42 +152,86 @@ module Threads
     }, headers)
   end
 
-  # retrieve a thread and its children from its hash
-  def self.get_thread(hash)
+  # get a thread from database
+  def self.get_thread_db(id)
     hashids = Hashids.new('thread', 10, 'abcdefghijklmnopqrstuvwxyz')
-    id = hashids.decode(hash)[0]
-
     db = PG.connect(dbname: 'storage')
+
+    # return a thread with a list of integers as children
     db.prepare('threads_users',
       'SELECT threads.id, users.username AS author, threads.text, threads.ext,
       threads.parent, threads.children::int[], threads.date_created
       FROM threads
       JOIN users ON users.id = threads.author
-      WHERE threads.id = $1 OR (
-	       SELECT threads.children FROM threads
-         WHERE threads.id = $1 LIMIT 1
-      ) @> ARRAY[threads.id]
-      ORDER BY threads.date_created LIMIT 20')
+      WHERE threads.id = $1 LIMIT 1')
     result = db.exec_prepared('threads_users', [id]) # TODO check result
     db.close
 
-    return nil if result.column_values(0).empty? # thread not found
+    return if result.column_values(0).empty? # thread not found
+    puts result.column_values(4)[0].nil?
 
-    threads = []
-    result.each { |row|
-      threads.push({
-        hash: hashids.encode(row['id']),
-        author: row['author'],
-        text: row['text'],
-        ext: row['ext'],
-        parent: row['parent'].nil? ? nil : hashids.encode(row['parent']),
-        children: row['children'].tr('{}', '').split(','),
-        date_created: date_as_sentence(row['date_created'])
-      })
+    root = {
+      hash: hashids.encode(result.column_values(0)[0].to_i),
+      author: result.column_values(1)[0],
+      text: result.column_values(2)[0],
+      # For some reason `ext` doesn't automatically get converted to nil
+      ext: result.column_values(3)[0] == 'NULL' ?
+        nil : result.column_values(3)[0],
+      parent: result.column_values(4)[0].nil? ?
+        nil : hashids.encode(result.column_values(4)[0].to_i),
+      children: result.column_values(5)[0]
+        .tr('{}', '').split(',').map{ |c| c.to_i },
+      date_created: date_as_sentence(result.column_values(6)[0])
     }
 
-    result.clear
-    return threads
+    pp root
+    return root
+  end
+
+  # transform an array of integers (id) into an array of threads
+  # and call the function recursively on the new threads' children
+  # e.g. [1, 2, 3] => [{thread (id = 1)}, {thread (id = 2)}, {thread (id = 3)}]
+  def self.transform_children(children)
+    return if children.length == 0
+
+    children.collect! { |child| get_thread_db(child) }
+      .each { |child| transform_children(child[:children]) }
+  end
+
+  # retrieve a thread and its children from its hash
+  # TODO implement a maximum depth
+  def self.get_thread_depth(hash)
+    hashids = Hashids.new('thread', 10, 'abcdefghijklmnopqrstuvwxyz')
+    id = hashids.decode(hash)[0]
+
+    thread = get_thread_db(id)
+    return if thread.nil?
+
+    if thread[:children].length > 0
+      transform_children(thread[:children])
+    end
+
+    return thread
+  end
+
+  # return a markdown parser for text rendering
+  def self.get_parser
+    renderer = Redcarpet::Render::HTML.new(
+      no_styles: true,
+      no_images: true,
+      filter_html: true,
+      escape_html: true,
+      hard_wrap: true
+    )
+    return Redcarpet::Markdown.new(renderer,
+      disable_indented_code_blocks: true,
+      fenced_code_blocks: true,
+      space_after_headers: true,
+      strikethrough: true,
+      underline: true,
+      quote: true,
+      lax_spacing: true
+    )
   end
 
   # convert a date to a 'X time ago' type sentence

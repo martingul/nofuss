@@ -11,6 +11,7 @@ GEM
       ipaddr
     pg (1.1.4)
     rack (2.0.6)
+    redcarpet (3.4.0)
     thin (1.7.2)
       daemons (~> 1.0, >= 1.0.9)
       eventmachine (~> 1.0, >= 1.0.4)
@@ -26,6 +27,7 @@ DEPENDENCIES
   openssl
   pg
   rack
+  redcarpet
   thin
 
 BUNDLED WITH

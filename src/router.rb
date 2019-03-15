@@ -1,6 +1,6 @@
-require './src/auth.rb'
-require './src/users.rb'
-require './src/threads.rb'
+require './src/auth'
+require './src/users'
+require './src/threads'
 
 module Router
   def self.route(req, env = {})
