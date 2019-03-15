@@ -80,7 +80,6 @@ module Threads
     return hash
   end
 
-  # submit view method
   def self.submit(req, user)
     if !req.post?
       return View.finalize('submit', 200, { user: user, incorrect: false })
@@ -120,23 +119,24 @@ module Threads
     hashids = Hashids.new('thread', 10, 'abcdefghijklmnopqrstuvwxyz')
     threads = []
     result.each_row { |row|
-      threads.push({
+      threads.push(Render::Thread.new(
         hash: hashids.encode(row[0].to_i),
-        author: row[1],
-        text: row[2],
-        ext: row[3],
+        author: row[1], text: row[2], ext: row[3], parent: nil,
         children: row[4].tr('{}', '').split(',').map{ |c| c.to_i },
         date_created: date_as_sentence(row[5])
-      })
+      ))
     }
 
     result.clear
     return threads
   end
 
-  # thread view method
+  # retrieve a thread from its hash
   def self.thread(hash, user, redirect = false)
-    thread = get_thread_depth(hash)
+    hashids = Hashids.new('thread', 10, 'abcdefghijklmnopqrstuvwxyz')
+    id = hashids.decode(hash)[0]
+
+    thread = get_thread_db(id)
     return Router.not_found if thread.nil?
 
     status = 200
@@ -168,69 +168,17 @@ module Threads
     db.close
 
     return if result.column_values(0).empty? # thread not found
-    puts result.column_values(4)[0].nil?
 
-    root = {
+    return Render::Thread.new(
       hash: hashids.encode(result.column_values(0)[0].to_i),
       author: result.column_values(1)[0],
       text: result.column_values(2)[0],
-      # For some reason `ext` doesn't automatically get converted to nil
-      ext: result.column_values(3)[0] == 'NULL' ?
-        nil : result.column_values(3)[0],
+      ext: result.column_values(3)[0],
       parent: result.column_values(4)[0].nil? ?
         nil : hashids.encode(result.column_values(4)[0].to_i),
-      children: result.column_values(5)[0]
-        .tr('{}', '').split(',').map{ |c| c.to_i },
+      children: result.column_values(5)[0].tr('{}', '')
+        .split(',').map{ |c| c.to_i },
       date_created: date_as_sentence(result.column_values(6)[0])
-    }
-
-    pp root
-    return root
-  end
-
-  # transform an array of integers (id) into an array of threads
-  # and call the function recursively on the new threads' children
-  # e.g. [1, 2, 3] => [{thread (id = 1)}, {thread (id = 2)}, {thread (id = 3)}]
-  def self.transform_children(children)
-    return if children.length == 0
-
-    children.collect! { |child| get_thread_db(child) }
-      .each { |child| transform_children(child[:children]) }
-  end
-
-  # retrieve a thread and its children from its hash
-  # TODO implement a maximum depth
-  def self.get_thread_depth(hash)
-    hashids = Hashids.new('thread', 10, 'abcdefghijklmnopqrstuvwxyz')
-    id = hashids.decode(hash)[0]
-
-    thread = get_thread_db(id)
-    return if thread.nil?
-
-    if thread[:children].length > 0
-      transform_children(thread[:children])
-    end
-
-    return thread
-  end
-
-  # return a markdown parser for text rendering
-  def self.get_parser
-    renderer = Redcarpet::Render::HTML.new(
-      no_styles: true,
-      no_images: true,
-      filter_html: true,
-      escape_html: true,
-      hard_wrap: true
-    )
-    return Redcarpet::Markdown.new(renderer,
-      disable_indented_code_blocks: true,
-      fenced_code_blocks: true,
-      space_after_headers: true,
-      strikethrough: true,
-      underline: true,
-      quote: true,
-      lax_spacing: true
     )
   end
 
