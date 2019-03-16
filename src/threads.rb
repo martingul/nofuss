@@ -46,7 +46,7 @@ module Threads
     $db.prepare(seed,
       'INSERT INTO threads(author, text, ext)
       VALUES($1, $2, $3) RETURNING id')
-    result = db.exec_prepared(seed, [
+    result = $db.exec_prepared(seed, [
       thread[:author], thread[:text], ext
     ]) # TODO check result
     id = result[0]['id']

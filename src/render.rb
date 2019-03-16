@@ -17,9 +17,6 @@ module Render
         <div class="thread"
           <% if depth > 0 %>
             style="margin-left: <%= 10*depth %>px"
-          <% end %>
-          <% if depth == -1 && @children.length > 0 %>
-            style="margin-bottom: 15px;"
           <% end %>>
           <div class="thread-header">
             <a href="/user/<%= @author %>">
@@ -35,7 +32,7 @@ module Render
               <% if !is_logged %>
               <a href="/login">reply</a>
               <% else %>
-              <label for="reply-<%= @hash %>">reply</label>
+              <label class="trigger" for="reply-<%= @hash %>">reply</label>
               <% end %>
             <% else %>
               <a href="/thread/<%=@hash %>">reply</a>
@@ -79,6 +76,11 @@ module Render
 
       template += <<~HTML
         </div>
+        <% if depth == -1 && @children.length > 0 %>
+        <div class="separator">
+          replies
+        </div>
+        <% end %>
       HTML
 
       return ERB.new(template).result(binding)
