@@ -17,8 +17,13 @@ module Router
     when 'logout'
       return Auth.logout(req)
     when 'user'
+      return not_found if query[1].nil?
       # TODO validate username (query[1])
-      return query[1].nil? ? not_found : Users.get_user(query[1], session)
+      if req.post?
+        return Users.edit_user(req, query[1], session)
+      else
+        return Users.get_user(query[1], session)
+      end
     when 'submit'
       return session.nil? ? index(session, true) : Threads.submit(req, session)
     when 'thread'

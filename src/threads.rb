@@ -29,7 +29,7 @@ module Threads
       # verify that parent thread exists
       parent = hashids.decode(thread[:parent])[0]
       seed = Random.new_seed.to_s
-      $db.prepare('threads1',
+      $db.prepare(seed,
         'SELECT EXISTS
           (SELECT 1
           FROM threads

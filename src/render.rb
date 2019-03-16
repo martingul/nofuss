@@ -1,4 +1,24 @@
 module Render
+  # return a markdown parser for text rendering
+  def self.get_parser
+    renderer = Redcarpet::Render::HTML.new(
+      no_styles: true,
+      no_images: true,
+      filter_html: true,
+      escape_html: true,
+      hard_wrap: true
+    )
+    return Redcarpet::Markdown.new(renderer,
+      disable_indented_code_blocks: true,
+      fenced_code_blocks: true,
+      space_after_headers: true,
+      strikethrough: true,
+      underline: true,
+      quote: true,
+      lax_spacing: true
+    )
+  end
+
   class Thread
     def initialize(thread)
       @hash = thread[:hash]
@@ -12,7 +32,7 @@ module Render
     end
 
     def render(depth, with_reply = false, is_logged = false)
-      parser = get_parser
+      parser = Render.get_parser
       template = <<~HTML
         <div class="thread"
           <% if depth > 0 %>
@@ -102,26 +122,6 @@ module Render
       end
 
       return @html
-    end
-
-    # return a markdown parser for text rendering
-    def get_parser
-      renderer = Redcarpet::Render::HTML.new(
-        no_styles: true,
-        no_images: true,
-        filter_html: true,
-        escape_html: true,
-        hard_wrap: true
-      )
-      return Redcarpet::Markdown.new(renderer,
-        disable_indented_code_blocks: true,
-        fenced_code_blocks: true,
-        space_after_headers: true,
-        strikethrough: true,
-        underline: true,
-        quote: true,
-        lax_spacing: true
-      )
     end
   end
 

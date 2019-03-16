@@ -27,7 +27,7 @@ module Users
   def self.get_user(username, session)
     seed = Random.new_seed.to_s
     $db.prepare(seed,
-      'SELECT users.id, users.date_created
+      'SELECT users.id, users.bio, users.date_created
       FROM users
       WHERE users.username = $1 LIMIT 1')
     result = $db.exec_prepared(seed, [username]) # TODO check result
@@ -35,11 +35,12 @@ module Users
     return Routes.not_found if result.values.empty? # user not found
 
     id = result.column_values(0)[0]
-    date_created = result.column_values(1)[0]
+    bio = result.column_values(1)[0]
+    date_created = result.column_values(2)[0]
     result.clear
     t_created = Time.parse(date_created).strftime("%B %e %Y")
 
-    user = { id: id, username: username, date_created: t_created }
+    user = { id: id, username: username, bio: bio, date_created: t_created }
     new_threads = get_history(user, 'date_created')
     top_threads = get_history(user, 'children')
 
@@ -49,6 +50,25 @@ module Users
       top_threads: top_threads,
       session: session
     })
+  end
+
+  def self.edit_user(req, username, session)
+    return if session[:username] != username # not authorized
+    bio = req.params['bio']
+
+    if !bio.nil?
+      # TODO validate bio
+      seed = Random.new_seed.to_s
+      $db.prepare(seed,
+      'UPDATE users
+      SET bio = $1
+      WHERE users.id = $2')
+
+      result = $db.exec_prepared(seed, [bio, session[:id]])
+      result.clear
+    end
+
+    return get_user(username, session)
   end
 
   def self.get_history(user, sort = 'date_created')
@@ -63,12 +83,12 @@ module Users
     SQL
 
     if sort == 'date_created'
-      # newest threads
+      # new threads
       statement += <<~SQL
         ORDER BY threads.date_created DESC LIMIT 20
       SQL
     elsif sort == 'children'
-      # threads with most children
+      # top threads
       statement += <<~SQL
         ORDER BY cardinality(threads.children) DESC LIMIT 20
       SQL
