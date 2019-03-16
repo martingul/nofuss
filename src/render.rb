@@ -88,7 +88,7 @@ module Render
     # TODO implement a maximum depth
     def recursive_render(depth, is_logged = false)
       if @children.length > 0
-        @children.collect! { |child| Threads.get_thread_db(child) }
+        @children.collect! { |child| Threads.get_thread(child) }
       end
 
       @html += render(depth, true, is_logged)

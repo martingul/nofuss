@@ -1,5 +1,4 @@
 require 'rack'
-require 'pg'
 require 'pp'
 require './src/router'
 require './src/view'

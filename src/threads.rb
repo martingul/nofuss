@@ -23,18 +23,18 @@ module Threads
     end
 
     hashids = Hashids.new('thread', 10, 'abcdefghijklmnopqrstuvwxyz')
-    db = PG.connect(dbname: 'storage')
-
     parent = nil
+
     if reply
       # verify that parent thread exists
       parent = hashids.decode(thread[:parent])[0]
-      db.prepare('threads1',
+      seed = Random.new_seed.to_s
+      $db.prepare('threads1',
         'SELECT EXISTS
           (SELECT 1
           FROM threads
           WHERE threads.id = $1 LIMIT 1)')
-      result = db.exec_prepared('threads1', [parent])
+      result = $db.exec_prepared(seed, [parent])
       exists = result.column_values(0)[0]
       result.clear
 
@@ -42,33 +42,35 @@ module Threads
     end
 
     # create thread in database
-    db.prepare('threads2',
+    seed = Random.new_seed.to_s
+    $db.prepare(seed,
       'INSERT INTO threads(author, text, ext)
       VALUES($1, $2, $3) RETURNING id')
-    result = db.exec_prepared('threads2', [
+    result = db.exec_prepared(seed, [
       thread[:author], thread[:text], ext
     ]) # TODO check result
     id = result[0]['id']
 
     if reply && !parent.nil?
       # add the new thread to the parent thread's children
-      db.prepare('threads3',
+      seed1 = Random.new_seed.to_s
+      $db.prepare(seed1,
         'UPDATE threads
         SET children = array_append(threads.children, $1)
         WHERE threads.id = $2')
 
       # set the new thread's parent to be the parent thread
-      db.prepare('threads4',
+      seed2 = Random.new_seed.to_s
+      $db.prepare(seed2,
         'UPDATE threads
         SET parent = $1
         WHERE threads.id = $2')
 
-      result = db.exec_prepared('threads3', [id, parent])
-      result = db.exec_prepared('threads4', [parent, id])
+      result = $db.exec_prepared(seed1, [id, parent])
+      result = $db.exec_prepared(seed2, [parent, id])
       # TODO check result
     end
 
-    db.close
     result.clear
 
     hash = hashids.encode(id)
@@ -105,16 +107,15 @@ module Threads
   end
 
   def self.get_threads
-    db = PG.connect(dbname: 'storage')
-    db.prepare('threads_users',
+    seed = Random.new_seed.to_s
+    $db.prepare(seed,
       'SELECT threads.id, users.username AS author, threads.text, threads.ext,
       threads.children::int[], threads.date_created
       FROM threads
       JOIN users ON users.id = threads.author
       WHERE threads.parent IS NULL
       ORDER BY threads.date_created DESC LIMIT 20')
-    result = db.exec_prepared('threads_users', []) #  TODO check result
-    db.close
+    result = $db.exec_prepared(seed, []) #  TODO check result
 
     hashids = Hashids.new('thread', 10, 'abcdefghijklmnopqrstuvwxyz')
     threads = []
@@ -136,7 +137,7 @@ module Threads
     hashids = Hashids.new('thread', 10, 'abcdefghijklmnopqrstuvwxyz')
     id = hashids.decode(hash)[0]
 
-    thread = get_thread_db(id)
+    thread = get_thread(id)
     return Router.not_found if thread.nil?
 
     status = 200
@@ -153,19 +154,18 @@ module Threads
   end
 
   # get a thread from database
-  def self.get_thread_db(id)
+  def self.get_thread(id)
     hashids = Hashids.new('thread', 10, 'abcdefghijklmnopqrstuvwxyz')
-    db = PG.connect(dbname: 'storage')
 
     # return a thread with a list of integers as children
-    db.prepare('threads_users',
+    seed = Random.new_seed.to_s
+    $db.prepare(seed,
       'SELECT threads.id, users.username AS author, threads.text, threads.ext,
       threads.parent, threads.children::int[], threads.date_created
       FROM threads
       JOIN users ON users.id = threads.author
       WHERE threads.id = $1 LIMIT 1')
-    result = db.exec_prepared('threads_users', [id]) # TODO check result
-    db.close
+    result = $db.exec_prepared(seed, [id]) # TODO check result
 
     return if result.column_values(0).empty? # thread not found
 

@@ -3,16 +3,14 @@ module Users
     password_hash = Auth.hash(password)
 
     # store a new user instance and get the uid back
-    db = PG.connect(dbname: 'storage')
-    db.prepare('users',
+    seed = Random.new_seed.to_s
+    $db.prepare(seed,
       'INSERT INTO users(username, password)
       VALUES($1, $2)
       RETURNING id AS uid')
-    result = db.exec_prepared('users', [username, password_hash])
+    result = $db.exec_prepared(seed, [username, password_hash])
     # TODO check result
     uid = result[0]['uid']
-
-    db.close
     result.clear
 
     return View.finalize('login', 201, created: true, username_trial: username)
@@ -27,12 +25,12 @@ module Users
   end
 
   def self.get_user(username, session)
-    db = PG.connect(dbname: 'storage')
-    db.prepare('user_select',
+    seed = Random.new_seed.to_s
+    $db.prepare(seed,
       'SELECT users.username, users.date_created
       FROM users
       WHERE users.username = $1 LIMIT 1')
-    result = db.exec_prepared('user_select', [username]) # TODO check result
+    result = $db.exec_prepared(seed, [username]) # TODO check result
 
     return Routes.not_found if result.values.empty? # user not found
 
