@@ -1,26 +1,21 @@
 module Users
   def self.signup(username, password)
     password_hash = Auth.hash(password)
-
     # store a new user instance and get the uid back
     seed = Random.new_seed.to_s
     $db.prepare(seed,
-      'INSERT INTO users(username, password)
-      VALUES($1, $2)
-      RETURNING id AS uid')
+      'INSERT INTO users(username, password, bio)
+      VALUES($1, $2, \'\')')
     result = $db.exec_prepared(seed, [username, password_hash])
-    # TODO check result
-    uid = result[0]['uid']
     result.clear
 
     return View.finalize('login', 201, created: true, username_trial: username)
   rescue PG::Error => e
+    puts e.inspect
     sqlstate = e.result.error_field(PG::Result::PG_DIAG_SQLSTATE)
 
     if sqlstate == '23505' # unique username constraint error
-      return View.finalize('login', 400, {
-        username: username, username_taken: true
-      })
+      return View.finalize('login', 400, username_taken: true)
     end
   end
 
@@ -30,7 +25,7 @@ module Users
       'SELECT users.id, users.bio, users.date_created
       FROM users
       WHERE users.username = $1 LIMIT 1')
-    result = $db.exec_prepared(seed, [username]) # TODO check result
+    result = $db.exec_prepared(seed, [username])
 
     return Routes.not_found if result.values.empty? # user not found
 
@@ -57,7 +52,6 @@ module Users
     bio = req.params['bio']
 
     if !bio.nil?
-      # TODO validate bio
       seed = Random.new_seed.to_s
       $db.prepare(seed,
       'UPDATE users

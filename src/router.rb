@@ -18,16 +18,17 @@ module Router
       return Auth.logout(req)
     when 'user'
       return not_found if query[1].nil?
-      # TODO validate username (query[1])
       if req.post?
         return Users.edit_user(req, query[1], session)
       else
         return Users.get_user(query[1], session)
       end
     when 'submit'
-      return session.nil? ? index(session, true) : Threads.submit(req, session)
+      return session.nil? ? index(session, true)
+        : Threads.submit(req, session)
     when 'thread'
-      return query[1].nil? ? not_found : Threads.thread(query[1], session)
+      return query[1].nil? ? not_found
+        : Threads.thread(query[1], req.params['edit'].to_s == 'true', session)
     else
       return not_found
     end
@@ -53,6 +54,6 @@ module Router
 
   def self.not_found
     body = ['404 Not found']
-    return Rack::Response.new(body, 200, {"Content-Type" => "text/plain"})
+    return Rack::Response.new(body, 404, {"Content-Type" => "text/plain"})
   end
 end

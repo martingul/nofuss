@@ -6,7 +6,6 @@ module Auth
     username = req.params['username']
     password = req.params['password']
     signup = req.params['signup']
-    # TODO validate username and password
     # TODO divide this part for GET and POST methods
     if username.nil? && password.nil? && signup.nil?
       return View.finalize('login')
@@ -19,7 +18,7 @@ module Auth
       'SELECT id, password
       FROM users
       WHERE username = $1 LIMIT 1')
-    result = $db.exec_prepared(seed, [username]) # TODO check result
+    result = $db.exec_prepared(seed, [username])
 
     if result.values.empty? # username not found
       return View.finalize('login', 200, {
@@ -57,7 +56,7 @@ module Auth
     seed = Random.new_seed.to_s
     $db.prepare(seed, 'DELETE FROM sessions WHERE sessid = $1')
     result = $db.exec_prepared(seed, [sessid_hash])
-    result.clear # TODO check result
+    result.clear
 
     # redirect to index
     return Router.index(nil, true)
@@ -75,7 +74,7 @@ module Auth
       'INSERT INTO sessions(sessid, uid)
       VALUES($1, $2)')
     result = $db.exec_prepared(seed, [sessid_hash, uid])
-    result.clear # TODO check result
+    result.clear
 
     return sessid_hex
   end
@@ -92,7 +91,6 @@ module Auth
       JOIN sessions ON sessions.uid = users.id
       WHERE sessions.sessid = $1 LIMIT 1')
     result = $db.exec_prepared(seed, [sessid_hash])
-    # TODO check result
 
     if !result.values.empty?
       session = {

@@ -20,6 +20,9 @@ module Render
   end
 
   class Thread
+    attr_reader :hash, :author, :text, :date_created
+    attr_accessor :children
+
     def initialize(thread)
       @hash = thread[:hash]
       @author = thread[:author]
@@ -31,7 +34,13 @@ module Render
       @html = ''
     end
 
-    def render(depth, with_reply = false, is_logged = false)
+    def render(depth, with_reply = false, session = nil)
+      is_logged = !session.nil?
+      is_author = false
+      if is_logged
+        is_author = session[:username] == @author
+      end
+
       parser = Render.get_parser
       template = <<~HTML
         <div class="thread"
@@ -55,7 +64,10 @@ module Render
               <label class="trigger" for="reply-<%= @hash %>">reply</label>
               <% end %>
             <% else %>
-              <a href="/thread/<%=@hash %>">reply</a>
+              <a href="/thread/<%= @hash %>">reply</a>
+            <% end %>
+            <% if is_author %>
+              <a href="/submit?thread=<%= @hash %>&edit=true">edit</a>
             <% end %>
           </div>
           <div class="thread-content">
@@ -88,7 +100,7 @@ module Render
                   display: block;
                 }
               </style>
-              <%= Reply.render(@hash) %>
+              <%= Textbox.render(self, false, true) %>
             </div>
           </div>
         HTML
@@ -108,16 +120,16 @@ module Render
 
     # recursively render the thread and retrieve its children
     # TODO implement a maximum depth
-    def recursive_render(depth, is_logged = false)
+    def recursive_render(depth, session = nil)
       if @children.length > 0
         @children.collect! { |child| Threads.get_thread(child) }
       end
 
-      @html += render(depth, true, is_logged)
+      @html += render(depth, true, session)
 
       if @children.length > 0
         @children.each { |child|
-          @html += child.recursive_render(depth + 1, is_logged)
+          @html += child.recursive_render(depth + 1, session) if !child.nil?
         }
       end
 
@@ -125,24 +137,30 @@ module Render
     end
   end
 
-  class Reply
-    def self.render(parent = nil, incorrect = false)
+  class Textbox
+      def self.render(thread = nil, invalid = false, reply = false)
       template = <<~HTML
         <div>
-          <% if incorrect %>
-          <div class="error">incorrect</div>
+          <% if invalid %>
+          <div class="error margin">invalid submission</div>
           <% end %>
-          You can submit some text
-          <a href="https://en.wikipedia.org/wiki/Markdown#Example" target="_blank">
-            (markdown)</a> and/or a file (image, gif, video)
-          <% if !parent.nil? %>
-          <form method="post" action="/submit?thread=<%= parent %>" enctype="multipart/form-data">
-          <% else %>
+          <div class="info">
+            you can submit text
+            <a href="https://en.wikipedia.org/wiki/Markdown#Example" target="_blank">
+              (markdown)</a> and/or a file (image, gif, video)
+          </div>
           <form method="post" action="/submit" enctype="multipart/form-data">
-          <% end %>
+            <% if !thread.nil? && !reply %>
+            <textarea id="text" name="text" spellcheck="false"><%= thread.text %></textarea>
+            <% else %>
             <textarea id="text" name="text" spellcheck="false"></textarea>
-            <input type="file" name="file" id="name" accept=".jpg,.gif">
-            <input type="submit" value="submit">
+            <% end %>
+            <input type="file" name="file" accept=".jpg,.gif">
+            <% if !thread.nil? %>
+            <input type="hidden" name="thread" value="<%= thread.hash %>">
+            <% end %>
+            <input type="hidden" name="edit" value="<%= !reply %>">
+            <input type="submit" value="<%= thread.nil? || reply ? 'submit' : 'edit' %>">
           </form>
         </div>
       HTML
@@ -152,7 +170,7 @@ module Render
   end
 
   class Header
-    def self.render(session)
+    def self.render(session = nil)
       template = <<~HTML
         <div class="header">
           <a href="/" class="title action">Frontpage</a>

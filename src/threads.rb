@@ -4,106 +4,220 @@ require 'mimemagic'
 require 'redcarpet'
 
 module Threads
-  def self.create_thread(thread, reply = false)
-    allowed_mimes = {
-      'image/jpeg' => 'jpg',
-      'image/png' => 'png',
-      'image/gif' => 'gif',
-    }
-
-    ext = nil
-    if !thread[:file].nil?
-      tmp = File.open(thread[:file][:tempfile].path, 'r')
-      # TODO check result of disk operations
-      # detect mime type and extension
-      mime = MimeMagic.by_magic(tmp)
-      ext = allowed_mimes["#{mime}"]
-
-      return nil if ext.nil? # file not allowed
-    end
+  def self.submit(req, session)
+    thread = req.params['thread']
+    edit = req.params['edit'].to_s == 'true'
 
     hashids = Hashids.new('thread', 10, 'abcdefghijklmnopqrstuvwxyz')
-    parent = nil
 
-    if reply
-      # verify that parent thread exists
-      parent = hashids.decode(thread[:parent])[0]
-      seed = Random.new_seed.to_s
-      $db.prepare(seed,
-        'SELECT EXISTS
-          (SELECT 1
-          FROM threads
-          WHERE threads.id = $1 LIMIT 1)')
-      result = $db.exec_prepared(seed, [parent])
-      exists = result.column_values(0)[0]
-      result.clear
+    # GET
+    if !req.post?
+      env = { invalid: false, reply: false, session: session }
+      if !thread.nil?
+        # verify that thread exists
+        id = hashids.decode(thread)[0]
+        t = get_thread(id)
+        return Router.not_found if t.nil?
 
-      return nil if !exists # parent thread not found
+        env[:thread] = t
+        env[:reply] = true
+
+        # specify if user is allowed to edit
+        if edit && session[:username] == t.author
+          env[:reply] = false
+        end
+      end
+
+      return View.finalize('submit', 200, env)
     end
+
+    # POST
+    text = req.params['text']
+    file = req.params['file']
+
+    raise(StandardError, 'invalid_submission') if text.empty? && file.nil?
+
+    hash = nil
+    if !thread.nil? && edit
+      # verify that thread exists
+      id = hashids.decode(thread)[0]
+      t = get_thread(id)
+      return Router.not_found if t.nil?
+
+      # verify that user is allowed to edit
+      raise(StandardError, 'edit_forbidden') if t.author != session[:username]
+
+      update_thread(id: id, text: text, file: file) # TODO pass t to update
+      hash = thread
+    else
+      hash = create_thread({
+        author: session[:id],
+        text: text,
+        file: file,
+        parent: thread
+      }, !thread.nil?)
+    end
+
+    return thread(hash, false, session, true) # redirect to the thread
+  rescue => e
+    puts e.inspect
+
+    env = { invalid: true, session: session }
+    headers = {}
+
+    if !thread.nil? && edit && e.message != 'edit_forbidden'
+      if t.nil?
+        id = hashids.decode(thread)[0]
+        t = get_thread(id)
+      end
+
+      env[:thread] = t
+      # choice here: 1) either redirect the user, but we'll have to pass the
+      # value of `invalid` to display on the form with a GET parameter for
+      # example or 2) don't redirect but the user will lose
+      # the `?thread=...&edit=true` part of the URL even if he'll still be
+      # editing the same thread
+      # headers = { 'Location' => "/submit?thread=#{t.hash}&edit=true" }
+    end
+
+    if e.message == 'edit_forbidden'
+      # redirect to thread
+      headers = { 'Location' => "/thread/#{t.hash}"}
+    end
+
+    return View.finalize('submit', headers.nil? ? 400 : 302, env, headers)
+  ensure
+    if !file.nil? && !file[:tempfile].nil?
+      file[:tempfile].close
+      file[:tempfile].unlink
+    end
+  end
+
+  def self.thread(hash, edit, session, redirect = false)
+    hashids = Hashids.new('thread', 10, 'abcdefghijklmnopqrstuvwxyz')
+    id = hashids.decode(hash)[0]
+
+    thread = get_thread(id)
+    return Router.not_found if thread.nil?
+
+    status = 200
+    headers = {}
+    if redirect
+      location = "/thread/#{hash}"
+      headers['Location'] = location
+      status = 302
+    end
+
+    return View.finalize('thread', status, {
+      thread: thread, edit: edit, session: session
+    }, headers)
+  end
+
+  # return whether a thread exists or not
+  def self.exists?(id)
+    return false if id.nil?
+
+    seed = Random.new_seed.to_s
+    $db.prepare(seed,
+      'SELECT EXISTS
+        (SELECT 1
+        FROM threads
+        WHERE threads.id = $1 LIMIT 1)')
+    result = $db.exec_prepared(seed, [id])
+    exists = result.column_values(0)[0]
+    result.clear
+
+    return exists
+  end
+
+  # create a thread in database and return its hash
+  def self.create_thread(thread, reply = false)
+    ext = get_file_ext(thread[:file]) if !thread[:file].nil?
+
+    hashids = Hashids.new('thread', 10, 'abcdefghijklmnopqrstuvwxyz')
+    parent = hashids.decode(thread[:parent])[0]
+    return if reply && !exists?(parent)
 
     # create thread in database
     seed = Random.new_seed.to_s
     $db.prepare(seed,
       'INSERT INTO threads(author, text, ext)
       VALUES($1, $2, $3) RETURNING id')
-    result = $db.exec_prepared(seed, [
-      thread[:author], thread[:text], ext
-    ]) # TODO check result
+    result = $db.exec_prepared(seed, [thread[:author], thread[:text], ext])
     id = result[0]['id']
-
-    if reply && !parent.nil?
-      # add the new thread to the parent thread's children
-      seed1 = Random.new_seed.to_s
-      $db.prepare(seed1,
-        'UPDATE threads
-        SET children = array_append(threads.children, $1)
-        WHERE threads.id = $2')
-
-      # set the new thread's parent to be the parent thread
-      seed2 = Random.new_seed.to_s
-      $db.prepare(seed2,
-        'UPDATE threads
-        SET parent = $1
-        WHERE threads.id = $2')
-
-      result = $db.exec_prepared(seed1, [id, parent])
-      result = $db.exec_prepared(seed2, [parent, id])
-      # TODO check result
-    end
-
     result.clear
 
+    add_child(parent, id) if reply && !parent.nil?
+
     hash = hashids.encode(id)
-    if !thread[:file].nil?
-      f = File.open("public/file/#{hash}.#{ext}", 'w') { |i| i.write(tmp.read) }
-      # TODO think about closing the temp file
-    end
+    create_file("#{hash}.#{ext}", thread[:file]) if !ext.nil?
 
     return hash
   end
 
-  def self.submit(req, session)
-    if !req.post?
-      return View.finalize('submit', 200, { incorrect: false, session: session })
+  # update a thread in database
+  def self.update_thread(thread)
+    ext = get_file_ext(thread[:file]) if !thread[:file].nil?
+
+    seed = Random.new_seed.to_s
+    $db.prepare(seed,
+      'UPDATE threads
+      SET text = $1, ext = $2
+      WHERE threads.id = $3')
+    result = $db.exec_prepared(seed, [thread[:text], ext, thread[:id]])
+    result.clear
+
+    if !ext.nil?
+      hashids = Hashids.new('thread', 10, 'abcdefghijklmnopqrstuvwxyz')
+      hash = hashids.encode(thread[:id])
+      create_file("#{hash}.#{ext}", thread[:file])
+      # TODO remove any other file with same name but different extension
     end
+  end
 
-    text = req.params['text']
-    file = req.params['file']
-    parent = req.params['thread']
-    # TODO validate each input
+  # add a child to a parent thread
+  def self.add_child(parent, child)
+    # add the child thread to the parent thread's children array
+    seed1 = Random.new_seed.to_s
+    $db.prepare(seed1,
+      'UPDATE threads
+      SET children = array_append(threads.children, $1)
+      WHERE threads.id = $2')
 
-    if text.empty? && file.nil?
-      return View.finalize('submit', 400, { incorrect: true, session: session })
-    end
+    # set the child thread's parent to be the parent thread
+    seed2 = Random.new_seed.to_s
+    $db.prepare(seed2,
+      'UPDATE threads
+      SET parent = $1
+      WHERE threads.id = $2')
 
-    hash = create_thread({
-      author: session[:id],
-      text: text,
-      file: file,
-      parent: parent
-    }, !parent.nil?)
+    result = $db.exec_prepared(seed1, [child, parent])
+    result = $db.exec_prepared(seed2, [parent, child])
+    result.clear
+  end
 
-    return thread(hash, session, true) # redirect to the thread
+  # return a file's extension by reading its content
+  def self.get_file_ext(file)
+    allowed_mimes = {
+      'image/jpeg' => 'jpg',
+      'image/png' => 'png',
+      'image/gif' => 'gif',
+    }
+
+    tmp = file[:tempfile]
+    mime = MimeMagic.by_magic(tmp) # detect mime type
+    ext = allowed_mimes["#{mime}"]
+
+    raise(StandardError, 'invalid_file') if ext.nil?
+    return ext
+  end
+
+  # create a file on disk
+  def self.create_file(name, file)
+    # TODO check result of disk operation
+    disk_file = File.open("public/file/#{name}", 'w') { |i|
+      i.write(file[:tempfile].read)
+    }
   end
 
   def self.get_threads
@@ -115,7 +229,7 @@ module Threads
       JOIN users ON users.id = threads.author
       WHERE threads.parent IS NULL
       ORDER BY threads.date_created DESC LIMIT 20')
-    result = $db.exec_prepared(seed, []) #  TODO check result
+    result = $db.exec_prepared(seed, [])
 
     hashids = Hashids.new('thread', 10, 'abcdefghijklmnopqrstuvwxyz')
     threads = []
@@ -132,28 +246,7 @@ module Threads
     return threads
   end
 
-  # retrieve a thread from its hash
-  def self.thread(hash, session, redirect = false)
-    hashids = Hashids.new('thread', 10, 'abcdefghijklmnopqrstuvwxyz')
-    id = hashids.decode(hash)[0]
-
-    thread = get_thread(id)
-    return Router.not_found if thread.nil?
-
-    status = 200
-    headers = {}
-    if redirect
-      location = "/thread/#{hash}"
-      headers['Location'] = location
-      status = 302
-    end
-
-    return View.finalize('thread', status, {
-      thread: thread, session: session
-    }, headers)
-  end
-
-  # get a thread from database
+  # return a thread from database
   def self.get_thread(id)
     hashids = Hashids.new('thread', 10, 'abcdefghijklmnopqrstuvwxyz')
 
@@ -165,7 +258,7 @@ module Threads
       FROM threads
       JOIN users ON users.id = threads.author
       WHERE threads.id = $1 LIMIT 1')
-    result = $db.exec_prepared(seed, [id]) # TODO check result
+    result = $db.exec_prepared(seed, [id])
 
     return if result.column_values(0).empty? # thread not found
 

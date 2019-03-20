@@ -3,7 +3,7 @@ require './src/render'
 
 class View
   def initialize(page, env = {})
-    @env = env # TODO validate each field
+    @env = env
     @page = page
     @template = File.read(File.expand_path("public/view/#{page}.html.erb"))
   end
