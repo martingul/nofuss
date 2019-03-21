@@ -20,7 +20,7 @@ module Render
   end
 
   class Thread
-    attr_reader :hash, :deleted, :author, :text, :date_created
+    attr_reader :hash, :deleted, :author, :text, :ext, :date_created
     attr_accessor :children
 
     def initialize(thread)
@@ -88,8 +88,9 @@ module Render
             <% else %>
               <% if !@ext.nil? %>
               <div>
-                <a href="/file/<%= "#{@hash}.#{@ext}" %>">
-                  <img src="/file/<%= "#{@hash}.#{@ext}" %>"></a>
+                <a href="/file/<%= @hash %>.<%= @ext %>">
+                  <img class="thumbnail" src="/file/<%= @hash %>.<%= @ext %>">
+                </a>
               </div>
               <% end %>
               <% if !@text.nil? %>
@@ -154,7 +155,7 @@ module Render
   end
 
   class Textbox
-      def self.render(thread = nil, invalid = false, reply = false)
+    def self.render(thread = nil, invalid = false, reply = false)
       template = <<~HTML
         <div>
           <div class="textbox-header">
@@ -163,38 +164,55 @@ module Render
             <% end %>
             <span class="info">
               you can submit text
-              <a href="https://en.wikipedia.org/wiki/Markdown#Example" target="_blank">
+              <a href="https://en.wikipedia.org/wiki/Markdown#Example"
+                target="_blank">
                 (markdown)</a> and/or a file (image, gif, video)
             </span>
             <% if !thread.nil? && !reply && !thread.deleted %>
             <form method="post" action="/submit">
               <input type="hidden" name="thread" value="<%= thread.hash %>">
               <input type="hidden" name="delete" value="true">
-              <input type="submit" value="delete">
+              <input type="submit" value="delete" style="margin-top: -2px;">
             </form>
             <% end %>
           </div>
           <form method="post" action="/submit" enctype="multipart/form-data">
             <% if !thread.nil? && !reply %>
-            <textarea id="text" name="text" spellcheck="false"><%= thread.text %></textarea>
+            <textarea id="text" name="text" spellcheck="false"><%=
+              thread.text
+            %></textarea>
+            <div class="textbox-footer">
+              <% if !thread.ext.nil? %>
+              <span>
+                <a href="/file/<%= thread.hash %>.<%= thread.ext %>">
+                <img class="thumbnail-small"
+                  src="/file/<%= thread.hash %>.<%= thread.ext %>"></a>
+              </span>
+              <% end %>
             <% else %>
             <textarea id="text" name="text" spellcheck="false"></textarea>
+            <div class="textbox-footer">
             <% end %>
-            <input type="file" name="file" accept=".jpg,.gif">
+            <span style="margin-left: 5px;">
+              <input type="file" name="file" accept=".jpg,.gif">
+            </span>
             <% if !thread.nil? %>
             <input type="hidden" name="thread" value="<%= thread.hash %>">
             <% end %>
-            <% if thread.nil? || reply %>
+            <span>
+              <% if thread.nil? || reply %>
               <input type="submit" value="submit">
-            <% else %>
-              <% if thread.deleted %>
-              <input type="hidden" name="undelete" value="true">
-              <input type="submit" value="undelete">
               <% else %>
-              <input type="hidden" name="edit" value="true">
-              <input type="submit" value="edit">
+                <% if thread.deleted %>
+                <input type="hidden" name="undelete" value="true">
+                <input type="submit" value="undelete">
+                <% else %>
+                <input type="hidden" name="edit" value="true">
+                <input type="submit" value="edit">
+                <% end %>
               <% end %>
-            <% end %>
+            </span>
+            </div>
           </form>
         </div>
       HTML

@@ -12,6 +12,8 @@ module Users
     return View.finalize('login', 201, created: true, username_trial: username)
   rescue PG::Error => e
     puts e.inspect
+    puts e.backtrace.join("\n")
+    
     sqlstate = e.result.error_field(PG::Result::PG_DIAG_SQLSTATE)
 
     if sqlstate == '23505' # unique username constraint error

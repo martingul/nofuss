@@ -53,19 +53,25 @@ module Threads
 
       if edit
         # verify that user is allowed to edit
-        raise(StandardError, 'edit_forbidden') if t.author != session[:username]
+        if t.author != session[:username]
+          raise(StandardError, 'edit_forbidden')
+        end
 
-        update_thread(id: id, text: text, file: file) # TODO pass t to update
+        update_thread(t, text, file)
         hash = thread
       elsif delete
         # verify that user is allowed to delete
-        raise(StandardError, 'delete_forbidden') if t.author != session[:username]
+        if t.author != session[:username]
+          raise(StandardError, 'delete_forbidden')
+        end
 
         toggle_thread(t, true)
         hash = thread
       elsif undelete
         # verify that user is allowed to undelete
-        raise(StandardError, 'undelete_forbidden') if t.author != session[:username]
+        if t.author != session[:username]
+          raise(StandardError, 'undelete_forbidden')
+        end
 
         toggle_thread(t, false)
         hash = thread
@@ -88,6 +94,7 @@ module Threads
     return thread(hash, false, session, true) # redirect to thread
   rescue => e
     puts e.inspect
+    puts e.backtrace.join("\n")
 
     env = { invalid: true, session: session }
     headers = {}
@@ -183,22 +190,38 @@ module Threads
   end
 
   # update a thread in database
-  def self.update_thread(thread)
-    ext = get_file_ext(thread[:file]) if !thread[:file].nil?
+  def self.update_thread(thread, new_text, new_file)
+    ext = get_file_ext(new_file) if !new_file.nil?
+
+    hashids = Hashids.new('thread', 10, 'abcdefghijklmnopqrstuvwxyz')
+    id = hashids.decode(thread.hash)[0]
+
+    if ext.nil?
+      # get current file extension
+      seed = Random.new_seed.to_s
+      $db.prepare(seed,
+        'SELECT threads.ext
+        FROM threads
+        WHERE threads.id = $1')
+      result = $db.exec_prepared(seed, [id])
+      old_ext = result.column_values(0)[0]
+      result.clear
+    end
 
     seed = Random.new_seed.to_s
     $db.prepare(seed,
       'UPDATE threads
       SET text = $1, ext = $2
       WHERE threads.id = $3')
-    result = $db.exec_prepared(seed, [thread[:text], ext, thread[:id]])
+    result = $db.exec_prepared(seed, [new_text, ext.nil? ? old_ext : ext, id])
     result.clear
 
-    if !ext.nil?
-      hashids = Hashids.new('thread', 10, 'abcdefghijklmnopqrstuvwxyz')
-      hash = hashids.encode(thread[:id])
-      create_file("#{hash}.#{ext}", thread[:file])
-      # TODO remove any other file with same name but different extension
+    if !new_file.nil?
+      if !old_ext.nil?
+        File.delete("./public/file/#{thread.hash}.#{old_ext}")
+      end
+
+      create_file("#{thread.hash}.#{ext}", new_file) if !new_file.nil?
     end
   end
 
@@ -256,8 +279,8 @@ module Threads
   # create a file on disk
   def self.create_file(name, file)
     # TODO check result of disk operation
-    disk_file = File.open("public/file/#{name}", 'w') { |i|
-      i.write(file[:tempfile].read)
+    disk_file = File.open("./public/file/#{name}", 'w') { |f|
+      f.write(file[:tempfile].read)
     }
   end
 
