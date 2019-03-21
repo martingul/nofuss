@@ -89,7 +89,9 @@ module Render
               <% if !@ext.nil? %>
               <div>
                 <a href="/file/<%= @hash %>.<%= @ext %>">
-                  <img class="thumbnail" src="/file/<%= @hash %>.<%= @ext %>">
+                  <img class="thumbnail" alt="<%= @hash %>.<%= @ext %>"
+                    title="<%= @hash %>.<%= @ext %>"
+                    src="/file/<%= @hash %>.<%= @ext %>">
                 </a>
               </div>
               <% end %>
@@ -186,6 +188,8 @@ module Render
               <span>
                 <a href="/file/<%= thread.hash %>.<%= thread.ext %>">
                 <img class="thumbnail-small"
+                  alt="<%= thread.hash %>.<%= thread.ext %>"
+                  title="<%= thread.hash %>.<%= thread.ext %>"
                   src="/file/<%= thread.hash %>.<%= thread.ext %>"></a>
               </span>
               <% end %>
@@ -193,16 +197,12 @@ module Render
             <textarea id="text" name="text" spellcheck="false"></textarea>
             <div class="textbox-footer">
             <% end %>
-            <span style="margin-left: 5px;">
-              <input type="file" name="file" accept=".jpg,.gif">
-            </span>
-            <% if !thread.nil? %>
-            <input type="hidden" name="thread" value="<%= thread.hash %>">
-            <% end %>
+            <span><input type="file" name="file" accept=".jpg,.gif"></span>
             <span>
               <% if thread.nil? || reply %>
               <input type="submit" value="submit">
               <% else %>
+              <input type="hidden" name="thread" value="<%= thread.hash %>">
                 <% if thread.deleted %>
                 <input type="hidden" name="undelete" value="true">
                 <input type="submit" value="undelete">

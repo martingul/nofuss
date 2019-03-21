@@ -73,6 +73,7 @@ module Threads
           raise(StandardError, 'undelete_forbidden')
         end
 
+        update_thread(t, text, file)
         toggle_thread(t, false)
         hash = thread
       else
@@ -115,8 +116,7 @@ module Threads
     end
 
     if e.message == 'edit_forbidden'
-      # redirect to thread
-      headers = { 'Location' => "/thread/#{t.hash}"}
+      headers = { 'Location' => "/thread/#{t.hash}"} # redirect to thread
     end
 
     return View.finalize('submit', headers.nil? ? 400 : 302, env, headers)
@@ -225,7 +225,7 @@ module Threads
     end
   end
 
-  # toggle the deleted status of a thread (delete or restore)
+  # toggle the deleted status of a thread (delete or undelete)
   def self.toggle_thread(thread, deleted)
     hashids = Hashids.new('thread', 10, 'abcdefghijklmnopqrstuvwxyz')
     id = hashids.decode(thread.hash)[0]
