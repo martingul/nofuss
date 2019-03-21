@@ -13,7 +13,7 @@ module Users
   rescue PG::Error => e
     puts e.inspect
     puts e.backtrace.join("\n")
-    
+
     sqlstate = e.result.error_field(PG::Result::PG_DIAG_SQLSTATE)
 
     if sqlstate == '23505' # unique username constraint error
@@ -37,7 +37,11 @@ module Users
     result.clear
     t_created = Time.parse(date_created).strftime("%B %e %Y")
 
-    exclude_deleted = id != session[:id]
+    exclude_deleted = false
+    if !session.nil?
+      exclude_deleted = id != session[:id]
+    end
+
     user = { id: id, username: username, bio: bio, date_created: t_created }
     new_threads = get_history(user, 'date_created', exclude_deleted)
     top_threads = get_history(user, 'children', exclude_deleted)
