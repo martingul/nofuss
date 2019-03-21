@@ -12,7 +12,7 @@ module Threads
 
     # GET
     if !req.post?
-      env = { invalid: false, reply: false, session: session }
+      env = { invalid: false, reply: false, undelete: false, session: session }
       if !thread.nil?
         # verify that thread exists
         id = hashids.decode(thread)[0]
@@ -22,7 +22,7 @@ module Threads
         env[:thread] = t
         env[:reply] = true
 
-        # specify if user is allowed to edit
+        # specify if user is allowed to edit the thread
         if edit && session[:username] == t.author
           env[:reply] = false
         end
@@ -34,22 +34,49 @@ module Threads
     # POST
     text = req.params['text']
     file = req.params['file']
+    delete = req.params['delete'].to_s == 'true'
+    undelete = req.params['undelete'].to_s == 'true'
 
-    raise(StandardError, 'invalid_submission') if text.empty? && file.nil?
+    if !delete && !undelete
+      if text.nil? || (text.empty? && file.nil?)
+        raise(StandardError, 'invalid_submission')
+      end
+    end
 
     hash = nil
-    if !thread.nil? && edit
+    new_hash = false
+    if !thread.nil?
       # verify that thread exists
       id = hashids.decode(thread)[0]
       t = get_thread(id)
       return Router.not_found if t.nil?
 
-      # verify that user is allowed to edit
-      raise(StandardError, 'edit_forbidden') if t.author != session[:username]
+      if edit
+        # verify that user is allowed to edit
+        raise(StandardError, 'edit_forbidden') if t.author != session[:username]
 
-      update_thread(id: id, text: text, file: file) # TODO pass t to update
-      hash = thread
+        update_thread(id: id, text: text, file: file) # TODO pass t to update
+        hash = thread
+      elsif delete
+        # verify that user is allowed to delete
+        raise(StandardError, 'delete_forbidden') if t.author != session[:username]
+
+        toggle_thread(t, true)
+        hash = thread
+      elsif undelete
+        # verify that user is allowed to undelete
+        raise(StandardError, 'undelete_forbidden') if t.author != session[:username]
+
+        toggle_thread(t, false)
+        hash = thread
+      else
+        new_hash = true
+      end
     else
+      new_hash = true
+    end
+
+    if new_hash
       hash = create_thread({
         author: session[:id],
         text: text,
@@ -58,7 +85,7 @@ module Threads
       }, !thread.nil?)
     end
 
-    return thread(hash, false, session, true) # redirect to the thread
+    return thread(hash, false, session, true) # redirect to thread
   rescue => e
     puts e.inspect
 
@@ -175,7 +202,21 @@ module Threads
     end
   end
 
-  # add a child to a parent thread
+  # toggle the deleted status of a thread (delete or restore)
+  def self.toggle_thread(thread, deleted)
+    hashids = Hashids.new('thread', 10, 'abcdefghijklmnopqrstuvwxyz')
+    id = hashids.decode(thread.hash)[0]
+
+    seed = Random.new_seed.to_s
+    $db.prepare(seed,
+      'UPDATE threads
+      SET deleted = $1
+      WHERE threads.id = $2')
+    result = $db.exec_prepared(seed, [deleted, id])
+    result.clear
+  end
+
+  # add a child to a parent thread in database
   def self.add_child(parent, child)
     # add the child thread to the parent thread's children array
     seed1 = Random.new_seed.to_s
@@ -227,7 +268,7 @@ module Threads
       threads.children::int[], threads.date_created
       FROM threads
       JOIN users ON users.id = threads.author
-      WHERE threads.parent IS NULL
+      WHERE threads.parent IS NULL AND NOT threads.deleted
       ORDER BY threads.date_created DESC LIMIT 20')
     result = $db.exec_prepared(seed, [])
 
@@ -253,8 +294,9 @@ module Threads
     # return a thread with a list of integers as children
     seed = Random.new_seed.to_s
     $db.prepare(seed,
-      'SELECT threads.id, users.username AS author, threads.text, threads.ext,
-      threads.parent, threads.children::int[], threads.date_created
+      'SELECT threads.id, threads.deleted,
+      users.username AS author, threads.text, threads.ext, threads.parent,
+      threads.children::int[], threads.date_created
       FROM threads
       JOIN users ON users.id = threads.author
       WHERE threads.id = $1 LIMIT 1')
@@ -264,14 +306,15 @@ module Threads
 
     return Render::Thread.new(
       hash: hashids.encode(result.column_values(0)[0].to_i),
-      author: result.column_values(1)[0],
-      text: result.column_values(2)[0],
-      ext: result.column_values(3)[0],
-      parent: result.column_values(4)[0].nil? ?
-        nil : hashids.encode(result.column_values(4)[0].to_i),
-      children: result.column_values(5)[0].tr('{}', '')
+      deleted: result.column_values(1)[0] == 't',
+      author: result.column_values(2)[0],
+      text: result.column_values(3)[0],
+      ext: result.column_values(4)[0],
+      parent: result.column_values(5)[0].nil? ?
+        nil : hashids.encode(result.column_values(5)[0].to_i),
+      children: result.column_values(6)[0].tr('{}', '')
         .split(',').map{ |c| c.to_i },
-      date_created: date_as_sentence(result.column_values(6)[0])
+      date_created: date_as_sentence(result.column_values(7)[0])
     )
   end
 

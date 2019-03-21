@@ -20,11 +20,12 @@ module Render
   end
 
   class Thread
-    attr_reader :hash, :author, :text, :date_created
+    attr_reader :hash, :deleted, :author, :text, :date_created
     attr_accessor :children
 
     def initialize(thread)
       @hash = thread[:hash]
+      @deleted = thread[:deleted]
       @author = thread[:author]
       @text = thread[:text]
       @ext = thread[:ext]
@@ -48,8 +49,12 @@ module Render
             style="margin-left: <%= 10*depth %>px"
           <% end %>>
           <div class="thread-header">
+            <% if @deleted && !is_author %>
+              <b>[deleted]</b>
+            <% else %>
             <a href="/user/<%= @author %>">
               <b><%= @author %></b></a>
+            <% end %>
             <span><%= @hash %></span>
             <a href="/thread/<%= @hash %>">
               <%= @date_created %> (<%= @children.length %>
@@ -57,30 +62,41 @@ module Render
             <% if !@parent.nil? && depth == -1 %>
               <a href="/thread/<%= @parent %>">parent</a>
             <% end %>
-            <% if with_reply %>
-              <% if !is_logged %>
-              <a href="/login">reply</a>
+            <% if !@deleted %>
+              <% if with_reply %>
+                <% if !is_logged %>
+                <a href="/login">reply</a>
+                <% else %>
+                <label class="trigger" for="reply-<%= @hash %>">reply</label>
+                <% end %>
               <% else %>
-              <label class="trigger" for="reply-<%= @hash %>">reply</label>
+                <a href="/thread/<%= @hash %>">reply</a>
+              <% end %>
+              <% if is_author %>
+                <a href="/submit?thread=<%= @hash %>&edit=true">edit</a>
               <% end %>
             <% else %>
-              <a href="/thread/<%= @hash %>">reply</a>
-            <% end %>
-            <% if is_author %>
-              <a href="/submit?thread=<%= @hash %>&edit=true">edit</a>
+              <% if is_author %>
+                <span class="info">[deleted]</span>
+                <a href="/submit?thread=<%= @hash %>&edit=true">undelete</a>
+              <% end %>
             <% end %>
           </div>
           <div class="thread-content">
-            <% if !@ext.nil? %>
-            <div>
-              <a href="/file/<%= "#{@hash}.#{@ext}" %>">
-                <img src="/file/<%= "#{@hash}.#{@ext}" %>"></a>
-            </div>
-            <% end %>
-            <% if !@text.nil? %>
-            <div class="text">
-              <%= parser.render(@text) %>
-            </div>
+            <% if @deleted && !is_author %>
+              [deleted]
+            <% else %>
+              <% if !@ext.nil? %>
+              <div>
+                <a href="/file/<%= "#{@hash}.#{@ext}" %>">
+                  <img src="/file/<%= "#{@hash}.#{@ext}" %>"></a>
+              </div>
+              <% end %>
+              <% if !@text.nil? %>
+              <div class="text">
+                <%= parser.render(@text) %>
+              </div>
+              <% end %>
             <% end %>
           </div>
       HTML
@@ -141,13 +157,22 @@ module Render
       def self.render(thread = nil, invalid = false, reply = false)
       template = <<~HTML
         <div>
-          <% if invalid %>
-          <div class="error margin">invalid submission</div>
-          <% end %>
-          <div class="info">
-            you can submit text
-            <a href="https://en.wikipedia.org/wiki/Markdown#Example" target="_blank">
-              (markdown)</a> and/or a file (image, gif, video)
+          <div class="textbox-header">
+            <% if invalid %>
+            <div class="error margin">invalid submission</div>
+            <% end %>
+            <span class="info">
+              you can submit text
+              <a href="https://en.wikipedia.org/wiki/Markdown#Example" target="_blank">
+                (markdown)</a> and/or a file (image, gif, video)
+            </span>
+            <% if !thread.nil? && !reply && !thread.deleted %>
+            <form method="post" action="/submit">
+              <input type="hidden" name="thread" value="<%= thread.hash %>">
+              <input type="hidden" name="delete" value="true">
+              <input type="submit" value="delete">
+            </form>
+            <% end %>
           </div>
           <form method="post" action="/submit" enctype="multipart/form-data">
             <% if !thread.nil? && !reply %>
@@ -159,8 +184,17 @@ module Render
             <% if !thread.nil? %>
             <input type="hidden" name="thread" value="<%= thread.hash %>">
             <% end %>
-            <input type="hidden" name="edit" value="<%= !reply %>">
-            <input type="submit" value="<%= thread.nil? || reply ? 'submit' : 'edit' %>">
+            <% if thread.nil? || reply %>
+              <input type="submit" value="submit">
+            <% else %>
+              <% if thread.deleted %>
+              <input type="hidden" name="undelete" value="true">
+              <input type="submit" value="undelete">
+              <% else %>
+              <input type="hidden" name="edit" value="true">
+              <input type="submit" value="edit">
+              <% end %>
+            <% end %>
           </form>
         </div>
       HTML

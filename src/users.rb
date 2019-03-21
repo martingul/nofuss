@@ -35,9 +35,10 @@ module Users
     result.clear
     t_created = Time.parse(date_created).strftime("%B %e %Y")
 
+    exclude_deleted = id != session[:id]
     user = { id: id, username: username, bio: bio, date_created: t_created }
-    new_threads = get_history(user, 'date_created')
-    top_threads = get_history(user, 'children')
+    new_threads = get_history(user, 'date_created', exclude_deleted)
+    top_threads = get_history(user, 'children', exclude_deleted)
 
     return View.finalize('user', 200, {
       user: user,
@@ -65,27 +66,23 @@ module Users
     return get_user(username, session)
   end
 
-  def self.get_history(user, sort = 'date_created')
+  def self.get_history(user, sort = 'date_created', exclude_deleted = false)
     hashids = Hashids.new('thread', 10, 'abcdefghijklmnopqrstuvwxyz')
     seed = Random.new_seed.to_s
 
-    statement = <<~SQL
-      SELECT threads.id, threads.text, threads.ext,
-      threads.parent, threads.children, threads.date_created
+    statement = 'SELECT threads.id, threads.deleted, threads.text, threads.ext,
+      threads.parent, threads.children::int[], threads.date_created
       FROM threads
-      WHERE threads.author = $1
-    SQL
+      WHERE threads.author = $1'
+
+    statement += ' AND NOT threads.deleted ' if exclude_deleted
 
     if sort == 'date_created'
       # new threads
-      statement += <<~SQL
-        ORDER BY threads.date_created DESC LIMIT 20
-      SQL
+      statement += 'ORDER BY threads.date_created DESC LIMIT 20'
     elsif sort == 'children'
       # top threads
-      statement += <<~SQL
-        ORDER BY cardinality(threads.children) DESC LIMIT 20
-      SQL
+      statement += 'ORDER BY cardinality(threads.children) DESC LIMIT 20'
     end
 
     $db.prepare(seed, statement)
@@ -95,12 +92,13 @@ module Users
     result.each_row { |row|
       threads.push(Render::Thread.new(
         hash: hashids.encode(row[0].to_i),
+        deleted: row[1] == 't',
         author: user[:username],
-        text: row[1],
-        ext: row[2],
-        parent: row[3],
-        children: row[4].tr('{}', '').split(',').map{ |c| c.to_i },
-        date_created: Threads.date_as_sentence(row[5])
+        text: row[2],
+        ext: row[3],
+        parent: row[4],
+        children: row[5].tr('{}', '').split(',').map{ |c| c.to_i },
+        date_created: Threads.date_as_sentence(row[6])
       ))
     }
 
