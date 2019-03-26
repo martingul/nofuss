@@ -1,6 +1,6 @@
 source 'https://rubygems.org'
 gem 'rack'
-gem 'thin'
+gem 'puma'
 gem 'pg'
 gem 'bcrypt'
 gem 'openssl'

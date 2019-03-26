@@ -36,17 +36,18 @@ module Render
     end
 
     def render(depth, with_reply = false, session = nil)
-      is_logged = !session.nil?
       is_author = false
-      if is_logged
+      if !session.nil?
+        is_logged = true
         is_author = session[:username] == @author
       end
 
       parser = Render.get_parser
       template = <<~HTML
-        <div class="thread"
-          <% if depth > 0 %>
-            style="margin-left: <%= 10*depth %>px"
+        <div class="thread" id="<%= @hash %>"
+          <% if is_author || depth > 0 %>
+            style="<% if is_author %>background: #fdfff2;<% end %>
+              <% if depth > 0 %>margin-left: <%= 10*depth %>px<% end %>"
           <% end %>>
           <div class="thread-header">
             <% if @deleted && !is_author %>
@@ -55,7 +56,6 @@ module Render
             <a href="/user/<%= @author %>">
               <b><%= @author %></b></a>
             <% end %>
-            <span><%= @hash %></span>
             <a href="/thread/<%= @hash %>">
               <%= @date_created %> (<%= @children.length %>
               child<% if @children.length != 1 %>ren<% end %>)</a>
@@ -67,10 +67,9 @@ module Render
                 <% if !is_logged %>
                 <a href="/login">reply</a>
                 <% else %>
-                <label class="trigger" for="reply-<%= @hash %>">reply</label>
+                <label class="trigger" for="reply-<%= @hash %>">
+                  reply</label>
                 <% end %>
-              <% else %>
-                <a href="/thread/<%= @hash %>">reply</a>
               <% end %>
               <% if is_author %>
                 <a href="/submit?thread=<%= @hash %>&edit=true">edit</a>
@@ -78,7 +77,8 @@ module Render
             <% else %>
               <% if is_author %>
                 <span class="info">[deleted]</span>
-                <a href="/submit?thread=<%= @hash %>&edit=true">undelete</a>
+                <a href="/submit?thread=<%= @hash %>&edit=true">
+                  undelete</a>
               <% end %>
             <% end %>
           </div>
@@ -148,7 +148,9 @@ module Render
 
       if @children.length > 0
         @children.each { |child|
-          @html += child.recursive_render(depth + 1, session) if !child.nil?
+          if !child.nil?
+            @html += child.recursive_render(depth + 1, session)
+          end
         }
       end
 
@@ -172,13 +174,16 @@ module Render
             </span>
             <% if !thread.nil? && !reply && !thread.deleted %>
             <form method="post" action="/submit">
-              <input type="hidden" name="thread" value="<%= thread.hash %>">
+              <input type="hidden" name="thread"
+                value="<%= thread.hash %>">
               <input type="hidden" name="delete" value="true">
-              <input type="submit" value="delete" style="margin-top: -2px;">
+              <input type="submit" value="delete"
+                style="margin-top: -2px;">
             </form>
             <% end %>
           </div>
-          <form method="post" action="/submit" enctype="multipart/form-data">
+          <form method="post" action="/submit"
+            enctype="multipart/form-data">
             <% if !thread.nil? && !reply %>
             <textarea id="text" name="text" spellcheck="false"><%=
               thread.text
@@ -197,13 +202,18 @@ module Render
             <textarea id="text" name="text" spellcheck="false"></textarea>
             <div class="textbox-footer">
             <% end %>
-            <span><input type="file" name="file" accept=".jpg,.gif"></span>
             <span>
-              <% if thread.nil? || reply %>
+              <input type="file" name="file" accept=".jpg,.gif">
+            </span>
+            <span>
+              <% if thread.nil? %>
               <input type="submit" value="submit">
               <% else %>
-              <input type="hidden" name="thread" value="<%= thread.hash %>">
-                <% if thread.deleted %>
+              <input type="hidden" name="thread"
+                value="<%= thread.hash %>">
+                <% if reply %>
+                <input type="submit" value="submit">
+                <% elsif thread.deleted %>
                 <input type="hidden" name="undelete" value="true">
                 <input type="submit" value="undelete">
                 <% else %>

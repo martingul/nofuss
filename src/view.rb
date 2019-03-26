@@ -5,7 +5,9 @@ class View
   def initialize(page, env = {})
     @env = env
     @page = page
-    @template = File.read(File.expand_path("public/view/#{page}.html.erb"))
+    @template = File.read(
+      File.expand_path("public/view/#{page}.html.erb")
+    )
   end
 
   def render

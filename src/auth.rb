@@ -6,6 +6,7 @@ module Auth
     username = req.params['username']
     password = req.params['password']
     signup = req.params['signup']
+    referrer = req.referrer # TODO validate the url
     # TODO divide this part for GET and POST methods
     if username.nil? && password.nil? && signup.nil?
       return View.finalize('login')
@@ -41,6 +42,8 @@ module Auth
     sessid = create_session(uid)
 
     # redirect to index
+    # TODO redirect to previous page
+    # first GET to /login has referrer, but then POST has referrer /login
     return Router.index(nil, true, {
       'Set-Cookie' => "sessid=#{sessid}; Path=/; HttpOnly"
     })
@@ -49,6 +52,7 @@ module Auth
   def self.logout(req)
     # delete session from database
     sessid = req.cookies['sessid']
+    referrer = req.referrer # TODO validate referrer url
 
     hash = OpenSSL::Digest::SHA256.digest(sessid)
     sessid_hash = bin_to_hex(hash)
@@ -58,8 +62,9 @@ module Auth
     result = $db.exec_prepared(seed, [sessid_hash])
     result.clear
 
-    # redirect to index
-    return Router.index(nil, true)
+    res = Rack::Response.new
+    res.redirect(referrer)
+    return res
   end
 
   def self.create_session(uid)
