@@ -2,49 +2,32 @@ module Users
   def self.signup(username, password)
     password_hash = Auth.hash(password)
     # store a new user instance and get the uid back
-    seed = Random.new_seed.to_s
-    $db.prepare(seed,
-      'INSERT INTO users(username, password, bio)
-      VALUES($1, $2, \'\')')
-    result = $db.exec_prepared(seed, [username, password_hash])
-    result.clear
+    $db.execute('insert into users(username, password, bio)
+                values(?, ?, ?)', [username, password_hash, ''])
 
     return View.finalize('login', 201, created: true, username_trial: username)
-  rescue PG::Error => e
-    puts e.inspect
-    puts e.backtrace.join("\n")
-
-    sqlstate = e.result.error_field(PG::Result::PG_DIAG_SQLSTATE)
-
-    if sqlstate == '23505' # unique username constraint error
-      return View.finalize('login', 400, username_taken: true)
-    end
+    # TODO make usernames unique (handle db constraint error)
   end
 
   def self.get_user(username, session)
-    seed = Random.new_seed.to_s
-    $db.prepare(seed,
-      'SELECT users.id, users.bio, users.date_created
-      FROM users
-      WHERE users.username = $1 LIMIT 1')
-    result = $db.exec_prepared(seed, [username])
+    rs = $db.execute('select users.rowid as id, users.bio, users.date_created
+                     from users where users.username = ? limit 1', [username])
 
-    return Routes.not_found if result.values.empty? # user not found
+    return Routes.not_found if rs.empty? # user not found
 
-    id = result.column_values(0)[0]
-    bio = result.column_values(1)[0]
-    date_created = result.column_values(2)[0]
-    result.clear
-    t_created = Time.parse(date_created).strftime("%B %e %Y")
+    id = rs[0]['id']
+    bio = rs[0]['bio']
+    date_created = rs[0]['date_created']
+    t_created = Time.at(date_created).strftime("%B %e %Y")
 
-    exclude_deleted = false
+    show_deleted = false
     if !session.nil?
-      exclude_deleted = id != session[:id]
+      show_deleted = id == session[:id]
     end
 
     user = { id: id, username: username, bio: bio, date_created: t_created }
-    new_threads = get_history(user, 'date_created', exclude_deleted)
-    top_threads = get_history(user, 'children', exclude_deleted)
+    new_threads = get_history(user, 'date_created', show_deleted)
+    top_threads = get_history(user, 'children', show_deleted)
 
     return View.finalize('user', 200, {
       user: user,
@@ -59,52 +42,50 @@ module Users
     bio = req.params['bio']
 
     if !bio.nil?
-      seed = Random.new_seed.to_s
-      $db.prepare(seed,
-      'UPDATE users
-      SET bio = $1
-      WHERE users.id = $2')
-
-      result = $db.exec_prepared(seed, [bio, session[:id]])
-      result.clear
+      $db.execute('update users set bio = ? where users.rowid = ?',
+                  [bio, session[:id]])
     end
 
     return get_user(username, session)
   end
 
-  def self.get_history(user, sort = 'date_created', exclude_deleted = false)
+  def self.get_history(user, sort = 'date_created', show_deleted = false)
     hashids = Hashids.new('thread', 10, 'abcdefghijklmnopqrstuvwxyz')
-    seed = Random.new_seed.to_s
 
-    statement = 'SELECT threads.id, threads.deleted, threads.text, threads.ext,
-      threads.parent, threads.children::int[], threads.date_created
-      FROM threads
-      WHERE threads.author = $1'
+    stmt = 'select threads.rowid as id, threads.deleted, threads.text,
+           threads.ext, threads.parent, threads.children, threads.date_created
+           from threads where threads.author = ?'
 
-    statement += ' AND NOT threads.deleted ' if exclude_deleted
+    stmt += ' and not threads.deleted ' if !show_deleted
 
     if sort == 'date_created'
       # new threads
-      statement += 'ORDER BY threads.date_created DESC LIMIT 20'
+      stmt += 'order by threads.date_created desc limit 20'
     elsif sort == 'children'
       # top threads
-      statement += 'ORDER BY cardinality(threads.children) DESC LIMIT 20'
+      # TODO implement sort by number of children
+      # stmt += 'order by cardinality(threads.children) desc limit 20'
     end
 
-    $db.prepare(seed, statement)
-    result = $db.exec_prepared(seed, [user[:id]])
+    rs = $db.execute(stmt, [user[:id]])
 
     threads = []
-    result.each_row { |row|
+    rs.each{ |r|
+      children = []
+      if !r['children'].nil?
+        #r['children'].split(',').map{ |c| c.to_i },
+        children = []
+      end
+
       threads.push(Render::Thread.new(
-        hash: hashids.encode(row[0].to_i),
-        deleted: row[1] == 't',
+        hash: hashids.encode(r['id'].to_i),
+        deleted: r['deleted'] == 1,
         author: user[:username],
-        text: row[2],
-        ext: row[3],
-        parent: row[4],
-        children: row[5].tr('{}', '').split(',').map{ |c| c.to_i },
-        date_created: Threads.date_as_sentence(row[6])
+        text: r['text'],
+        ext: r['ext'],
+        parent: r['parent'],
+        children: children, 
+        date_created: Threads.date_as_sentence(r['date_created'])
       ))
     }
 

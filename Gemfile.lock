@@ -8,10 +8,10 @@ GEM
     mimemagic (0.3.3)
     openssl (2.1.2)
       ipaddr
-    pg (1.1.4)
     puma (3.12.1)
     rack (2.0.6)
     redcarpet (3.4.0)
+    sqlite3 (1.4.1)
 
 PLATFORMS
   ruby
@@ -22,10 +22,10 @@ DEPENDENCIES
   hashids
   mimemagic
   openssl
-  pg
   puma
   rack
   redcarpet
+  sqlite3
 
 BUNDLED WITH
-   2.0.1
+   2.0.2

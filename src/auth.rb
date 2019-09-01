@@ -14,22 +14,17 @@ module Auth
 
     return Users.signup(username, password) if signup
     # retrieve password from database for comparison
-    seed = Random.new_seed.to_s
-    $db.prepare(seed,
-      'SELECT id, password
-      FROM users
-      WHERE username = $1 LIMIT 1')
-    result = $db.exec_prepared(seed, [username])
+    rs = $db.execute('select rowid as id, password from users
+                     where username = ? limit 1', [username])
 
-    if result.values.empty? # username not found
+    if rs.empty? # username not found
       return View.finalize('login', 200, {
         username_trial: username, invalid_username: true
       })
     end
 
-    uid = result.column_values(0)[0]
-    password_db = result.column_values(1)[0]
-    result.clear
+    uid = rs[0]['id']
+    password_db = rs[0]['password']
     password_hash = BCrypt::Password.new(password_db)
 
     if password_hash != password # passwords do not match
@@ -57,10 +52,7 @@ module Auth
     hash = OpenSSL::Digest::SHA256.digest(sessid)
     sessid_hash = bin_to_hex(hash)
 
-    seed = Random.new_seed.to_s
-    $db.prepare(seed, 'DELETE FROM sessions WHERE sessid = $1')
-    result = $db.exec_prepared(seed, [sessid_hash])
-    result.clear
+    $db.execute('delete from sessions where sessid = ?', [sessid_hash])
 
     res = Rack::Response.new
     res.redirect(referrer)
@@ -74,12 +66,8 @@ module Auth
     hash = OpenSSL::Digest::SHA256.digest(sessid_hex)
     sessid_hash = bin_to_hex(hash)
 
-    seed = Random.new_seed.to_s
-    $db.prepare(seed,
-      'INSERT INTO sessions(sessid, uid)
-      VALUES($1, $2)')
-    result = $db.exec_prepared(seed, [sessid_hash, uid])
-    result.clear
+    $db.execute('insert into sessions(sessid, uid) values(?, ?)',
+                [sessid_hash, uid])
 
     return sessid_hex
   end
@@ -89,24 +77,18 @@ module Auth
     hash = OpenSSL::Digest::SHA256.digest(sessid)
     sessid_hash = bin_to_hex(hash)
 
-    seed = Random.new_seed.to_s
-    $db.prepare(seed,
-      'SELECT users.id, users.username
-      FROM users
-      JOIN sessions ON sessions.uid = users.id
-      WHERE sessions.sessid = $1 LIMIT 1')
-    result = $db.exec_prepared(seed, [sessid_hash])
+    rs = $db.execute('select users.rowid as id, users.username from users
+                     join sessions on sessions.uid = users.rowid
+                     where sessions.sessid = ? limit 1', [sessid_hash])
 
-    if !result.values.empty?
+    session = nil
+    if !rs.empty?
       session = {
-        id: result.column_values(0)[0],
-        username: result.column_values(1)[0]
+        id: rs[0]['id'],
+        username: rs[0]['username']
       }
-    else
-      session = nil
     end
 
-    result.clear
     return session
   end
 

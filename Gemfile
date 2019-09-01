@@ -1,7 +1,7 @@
 source 'https://rubygems.org'
 gem 'rack'
 gem 'puma'
-gem 'pg'
+gem 'sqlite3'
 gem 'bcrypt'
 gem 'openssl'
 gem 'hashids'

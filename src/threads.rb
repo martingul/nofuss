@@ -57,7 +57,7 @@ module Threads
           raise(StandardError, 'edit_forbidden')
         end
 
-        update_thread(t, text, file)
+        edit_thread(t, text, file)
         hash = thread
       elsif delete
         # verify that user is allowed to delete
@@ -73,7 +73,7 @@ module Threads
           raise(StandardError, 'undelete_forbidden')
         end
 
-        update_thread(t, text, file)
+        edit_thread(t, text, file)
         toggle_thread(t, false)
         hash = thread
       else
@@ -151,16 +151,10 @@ module Threads
   def self.exists?(id)
     return false if id.nil?
 
-    seed = Random.new_seed.to_s
-    $db.prepare(seed,
-      'SELECT EXISTS
-        (SELECT 1
-        FROM threads
-        WHERE threads.id = $1 LIMIT 1)')
-    result = $db.exec_prepared(seed, [id])
-    exists = result.column_values(0)[0]
-    result.clear
+    $db.execute('select exists (select 1 from threads 
+                where threads.rowid = ? limit 1)', [id])
 
+    exists = rs[0]['exists']
     return exists
   end
 
@@ -173,14 +167,14 @@ module Threads
     return if reply && !exists?(parent)
 
     # create thread in database
-    seed = Random.new_seed.to_s
-    $db.prepare(seed,
-      'INSERT INTO threads(author, text, ext)
-      VALUES($1, $2, $3) RETURNING id')
-    result = $db.exec_prepared(seed, [thread[:author], thread[:text], ext])
-    id = result[0]['id']
-    result.clear
+    $db.execute('insert into threads(author, text, ext) values(?, ?, ?)',
+                [thread[:author], thread[:text], ext])
 
+    # get newly inserted thread id
+    rs = $db.execute('select rowid as id from threads where author = ?
+                     order by date_created desc limit 1', [thread[:author]])
+
+    id = rs[0]['id']
     add_child(parent, id) if reply && !parent.nil?
 
     hash = hashids.encode(id)
@@ -190,7 +184,7 @@ module Threads
   end
 
   # update a thread in database
-  def self.update_thread(thread, new_text, new_file)
+  def self.edit_thread(thread, new_text, new_file)
     ext = get_file_ext(new_file) if !new_file.nil?
 
     hashids = Hashids.new('thread', 10, 'abcdefghijklmnopqrstuvwxyz')
@@ -198,23 +192,13 @@ module Threads
 
     if ext.nil?
       # get current file extension
-      seed = Random.new_seed.to_s
-      $db.prepare(seed,
-        'SELECT threads.ext
-        FROM threads
-        WHERE threads.id = $1')
-      result = $db.exec_prepared(seed, [id])
-      old_ext = result.column_values(0)[0]
-      result.clear
+      rs = $db.execute('select threads.ext from threads
+                       where threads.rowid = ?', [id])
+      old_ext = rs[0]['ext']
     end
 
-    seed = Random.new_seed.to_s
-    $db.prepare(seed,
-      'UPDATE threads
-      SET text = $1, ext = $2
-      WHERE threads.id = $3')
-    result = $db.exec_prepared(seed, [new_text, ext.nil? ? old_ext : ext, id])
-    result.clear
+    $db.execute('update threads set text = ?, ext = ? where threads.rowid = ?',
+                [new_text, ext.nil? ? old_ext : ext, id])
 
     if !new_file.nil?
       if !old_ext.nil?
@@ -230,34 +214,20 @@ module Threads
     hashids = Hashids.new('thread', 10, 'abcdefghijklmnopqrstuvwxyz')
     id = hashids.decode(thread.hash)[0]
 
-    seed = Random.new_seed.to_s
-    $db.prepare(seed,
-      'UPDATE threads
-      SET deleted = $1
-      WHERE threads.id = $2')
-    result = $db.exec_prepared(seed, [deleted, id])
-    result.clear
+    $db.execute('update threads set deleted = ? where threads.rowid = ?',
+               [deleted ? 1 : 0, id])
   end
 
   # add a child to a parent thread in database
   def self.add_child(parent, child)
     # add the child thread to the parent thread's children array
-    seed1 = Random.new_seed.to_s
-    $db.prepare(seed1,
-      'UPDATE threads
-      SET children = array_append(threads.children, $1)
-      WHERE threads.id = $2')
+    $db.execute('update threads
+                set children = array_append(threads.children, ?)
+                where threads.rowid = ?', [child, parent])
 
     # set the child thread's parent to be the parent thread
-    seed2 = Random.new_seed.to_s
-    $db.prepare(seed2,
-      'UPDATE threads
-      SET parent = $1
-      WHERE threads.id = $2')
-
-    result = $db.exec_prepared(seed1, [child, parent])
-    result = $db.exec_prepared(seed2, [parent, child])
-    result.clear
+    $db.execute('update threads set parent = ?
+                where threads.rowid = ?', [parent, child])
   end
 
   # return a file's extension by reading its content
@@ -285,28 +255,33 @@ module Threads
   end
 
   def self.get_threads
-    seed = Random.new_seed.to_s
-    $db.prepare(seed,
-      'SELECT threads.id, users.username AS author, threads.text, threads.ext,
-      threads.children::int[], threads.date_created
-      FROM threads
-      JOIN users ON users.id = threads.author
-      WHERE threads.parent IS NULL AND NOT threads.deleted
-      ORDER BY threads.date_created DESC LIMIT 20')
-    result = $db.exec_prepared(seed, [])
+    rs = $db.execute('select threads.rowid as id, users.username as author, 
+                      threads.text, threads.ext, threads.children,
+                      threads.date_created from threads
+                      join users on users.rowid = threads.author
+                      where threads.parent is null and not threads.deleted
+                      order by threads.date_created desc limit 20')
 
     hashids = Hashids.new('thread', 10, 'abcdefghijklmnopqrstuvwxyz')
     threads = []
-    result.each_row { |row|
+    rs.each { |r|
+      children = []
+      if !r['children'].nil?
+        #.tr('{}', '').split(',').map{ |c| c.to_i }
+        children = []
+      end
+
       threads.push(Render::Thread.new(
-        hash: hashids.encode(row[0].to_i),
-        author: row[1], text: row[2], ext: row[3], parent: nil,
-        children: row[4].tr('{}', '').split(',').map{ |c| c.to_i },
-        date_created: date_as_sentence(row[5])
+        hash: hashids.encode(r['id']),
+        author: r['author'],
+        text: r['text'],
+        ext: r['ext'],
+        parent: r['parent'],
+        children: children,
+        date_created: date_as_sentence(r['date_created'])
       ))
     }
 
-    result.clear
     return threads
   end
 
@@ -315,35 +290,37 @@ module Threads
     hashids = Hashids.new('thread', 10, 'abcdefghijklmnopqrstuvwxyz')
 
     # return a thread with a list of integers as children
-    seed = Random.new_seed.to_s
-    $db.prepare(seed,
-      'SELECT threads.id, threads.deleted,
-      users.username AS author, threads.text, threads.ext, threads.parent,
-      threads.children::int[], threads.date_created
-      FROM threads
-      JOIN users ON users.id = threads.author
-      WHERE threads.id = $1 LIMIT 1')
-    result = $db.exec_prepared(seed, [id])
+    rs = $db.execute('select threads.rowid as id, threads.deleted,
+                      users.username as author, threads.text, threads.ext,
+                      threads.parent, threads.children, threads.date_created
+                      from threads join users on users.rowid = threads.author
+                      where threads.rowid = ? limit 1', [id])
 
-    return if result.column_values(0).empty? # thread not found
+    return if rs.empty? # thread not found
+    r = rs[0]
+  
+    children = []
+    if !r['children'].nil?
+      children = []
+    end
 
     return Render::Thread.new(
-      hash: hashids.encode(result.column_values(0)[0].to_i),
-      deleted: result.column_values(1)[0] == 't',
-      author: result.column_values(2)[0],
-      text: result.column_values(3)[0],
-      ext: result.column_values(4)[0],
-      parent: result.column_values(5)[0].nil? ?
-        nil : hashids.encode(result.column_values(5)[0].to_i),
-      children: result.column_values(6)[0].tr('{}', '')
-        .split(',').map{ |c| c.to_i },
-      date_created: date_as_sentence(result.column_values(7)[0])
+      hash: hashids.encode(r['id']),
+      deleted: r['deleted'] == 1,
+      author: r['author'],
+      text: r['text'],
+      ext: r['ext'],
+      parent: r['parent'].nil? ?
+        nil : hashids.encode(r['parent']),
+      children: children,
+      date_created: date_as_sentence(r['date_created'])
     )
   end
 
   # convert a date to a 'X time ago' type sentence
+  # TODO mode this function into a utils module
   def self.date_as_sentence(date)
-    d = Time.parse(date)
+    d = Time.at(date)
     t_now = Time.now
     dt = t_now - d
 

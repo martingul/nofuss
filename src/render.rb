@@ -20,7 +20,7 @@ module Render
   end
 
   class Thread
-    attr_reader :hash, :deleted, :author, :text, :ext, :date_created
+    attr_reader :hash, :deleted, :author, :title, :text, :ext, :date_created
     attr_accessor :children
 
     def initialize(thread)
@@ -46,8 +46,13 @@ module Render
       template = <<~HTML
         <div class="thread" id="<%= @hash %>"
           <% if is_author || depth > 0 %>
-            style="<% if is_author %>background: #fdfff2;<% end %>
-              <% if depth > 0 %>margin-left: <%= 10*depth %>px<% end %>"
+            style="
+            <% if depth > 0 %>
+              margin-left: <%= 10*depth %>px; border-left: 1px dotted #666;
+            <% end %>
+            <% if is_author %>
+              background: #fdfff2;
+            <% end %>"
           <% end %>>
           <div class="thread-header">
             <% if @deleted && !is_author %>
@@ -82,6 +87,7 @@ module Render
               <% end %>
             <% end %>
           </div>
+          <%= @title %>
           <div class="thread-content">
             <% if @deleted && !is_author %>
               [deleted]
@@ -129,7 +135,7 @@ module Render
         </div>
         <% if depth == -1 && @children.length > 0 %>
         <div class="separator">
-          replies
+          <span class="name">replies</span>
         </div>
         <% end %>
       HTML
