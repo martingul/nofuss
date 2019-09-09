@@ -32,11 +32,13 @@ module Threads
     end
 
     # POST
+    title = req.params['title']
     text = req.params['text']
     file = req.params['file']
     delete = req.params['delete'].to_s == 'true'
     undelete = req.params['undelete'].to_s == 'true'
-
+    
+    # TODO check that title is not null
     if !delete && !undelete
       if text.nil? || (text.empty? && file.nil?)
         raise(StandardError, 'invalid_submission')
@@ -86,6 +88,7 @@ module Threads
     if new_hash
       hash = create_thread({
         author: session[:id],
+        title: title,
         text: text,
         file: file,
         parent: thread
@@ -167,8 +170,9 @@ module Threads
     return if reply && !exists?(parent)
 
     # create thread in database
-    $db.execute('insert into threads(author, text, ext) values(?, ?, ?)',
-                [thread[:author], thread[:text], ext])
+    $db.execute('insert into threads(author, title, text, ext)
+                values(?, ?, ?, ?)', [thread[:author], thread[:title],
+                thread[:text], ext])
 
     # get newly inserted thread id
     rs = $db.execute('select rowid as id from threads where author = ?
@@ -291,9 +295,10 @@ module Threads
 
     # return a thread with a list of integers as children
     rs = $db.execute('select threads.rowid as id, threads.deleted,
-                      users.username as author, threads.text, threads.ext,
-                      threads.parent, threads.children, threads.date_created
-                      from threads join users on users.rowid = threads.author
+                      users.username as author, threads.title,
+                      threads.text, threads.ext, threads.parent,
+                      threads.children, threads.date_created from threads
+                      join users on users.rowid = threads.author
                       where threads.rowid = ? limit 1', [id])
 
     return if rs.empty? # thread not found
@@ -307,6 +312,7 @@ module Threads
     return Render::Thread.new(
       hash: hashids.encode(r['id']),
       deleted: r['deleted'] == 1,
+      title: r['title'],
       author: r['author'],
       text: r['text'],
       ext: r['ext'],
@@ -318,7 +324,7 @@ module Threads
   end
 
   # convert a date to a 'X time ago' type sentence
-  # TODO mode this function into a utils module
+  # TODO move this function into a utils module
   def self.date_as_sentence(date)
     d = Time.at(date)
     t_now = Time.now

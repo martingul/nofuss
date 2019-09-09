@@ -27,6 +27,7 @@ module Render
       @hash = thread[:hash]
       @deleted = thread[:deleted]
       @author = thread[:author]
+      @title = thread[:title]
       @text = thread[:text]
       @ext = thread[:ext]
       @parent = thread[:parent]
@@ -165,19 +166,13 @@ module Render
   end
 
   class Textbox
-    def self.render(thread = nil, invalid = false, reply = false)
+    def self.render(thread = nil, invalid = false, reply = false, title = false)
       template = <<~HTML
         <div>
           <div class="textbox-header">
             <% if invalid %>
             <div class="error margin">invalid submission</div>
             <% end %>
-            <span class="info">
-              you can submit text
-              <a href="https://en.wikipedia.org/wiki/Markdown#Example"
-                target="_blank">
-                (markdown)</a> and/or a file (image, gif, video)
-            </span>
             <% if !thread.nil? && !reply && !thread.deleted %>
             <form method="post" action="/submit">
               <input type="hidden" name="thread"
@@ -188,8 +183,20 @@ module Render
             </form>
             <% end %>
           </div>
-          <form method="post" action="/submit"
-            enctype="multipart/form-data">
+          <form method="post" action="/submit" enctype="multipart/form-data">
+            <% if title %>
+            <input type="text" name="title"
+              placeholder="title" spellcheck="false"
+              <% if !thread.nil? && !reply %>
+              value="<%= thread.title %>"
+              <% end %>>
+            <% end %>
+            <span class="info">
+            you can submit text
+            <a href="https://en.wikipedia.org/wiki/Markdown#Example"
+              target="_blank">
+              (markdown)</a> and/or a file (image, gif, video)
+            </span>
             <% if !thread.nil? && !reply %>
             <textarea id="text" name="text" spellcheck="false"><%=
               thread.text
