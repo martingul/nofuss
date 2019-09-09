@@ -1,0 +1,8 @@
+(Work in progress)
+
+Everything is rendered server-side and sent back to the client as a single html file per page.
+No javascript, no extra requests once the page is received.
+The goal of this code is to experiment the performance of good old server-side rendering
+compared to today's web applications that typically use asynchronous http requests to remote APIs.
+
+Runs on Rack + Puma + SQLite
