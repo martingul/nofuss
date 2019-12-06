@@ -8,7 +8,7 @@ GEM
     mimemagic (0.3.3)
     openssl (2.1.2)
       ipaddr
-    puma (3.12.1)
+    puma (3.12.2)
     rack (2.0.6)
     redcarpet (3.4.0)
     sqlite3 (1.4.1)
