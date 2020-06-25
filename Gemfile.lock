@@ -9,7 +9,7 @@ GEM
     openssl (2.1.2)
       ipaddr
     puma (3.12.4)
-    rack (2.0.6)
+    rack (2.1.4)
     redcarpet (3.4.0)
     sqlite3 (1.4.1)
 
