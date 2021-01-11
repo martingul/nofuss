@@ -10,7 +10,7 @@ GEM
       ipaddr
     puma (3.12.4)
     rack (2.0.6)
-    redcarpet (3.4.0)
+    redcarpet (3.5.1)
     sqlite3 (1.4.1)
 
 PLATFORMS
